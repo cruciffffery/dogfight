@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Real-time multiplayer browser game — Lab 1: event loop, fixed-timestep game loop, a ship you fly",
+  "description": "Real-time multiplayer browser game (semester project)",
   "engines": {
     "node": ">=22"
   },
@@ -15,7 +15,8 @@
     "format": "biome format --write .",
     "check": "biome check .",
     "check:fix": "biome check --write .",
-    "determinism": "node scripts/determinism.js"
+    "determinism": "node scripts/determinism.js",
+    "this-bug": "node scripts/this-bug.js"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",

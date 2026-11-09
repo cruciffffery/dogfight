@@ -1,18 +1,16 @@
 /**
- * Експеримент 3 без браузера: оскільки sim/ не залежить від DOM, фізику можна
+ * Експеримент 3 (Лаба 1) без браузера: sim/ не залежить від DOM, тому фізику можна
  * прогнати в Node з будь-якою «частотою кадрів» і порівняти траєкторії.
  *
  *   npm run determinism
- *
- * Кожен сценарій — послідовність тривалостей кадрів (мс). Симулюємо 5 с «газу».
  */
-import { createShip, integrate } from "../src/sim/ship.js";
+import { integrate } from "../src/sim/physics.js";
+import { Vector2 } from "../src/sim/vector.js";
 
 const STEP = 1 / 60;
 const THRUST = { turn: 0, thrust: true, brake: false };
 const DURATION = 5;
 
-// Детермінований «шум» тривалості кадру, щоб імітувати джитер
 function jittered(baseMs, spreadMs, seed) {
   let s = seed;
   return () => {
@@ -28,8 +26,10 @@ const scenarios = [
   { name: "CPU 6× (~10 fps, jitter)", next: jittered(100, 30, 42) },
 ];
 
+const start = () => ({ pos: Vector2.ZERO, vel: Vector2.ZERO, angle: 0 });
+
 function runFixed(nextFrameMs) {
-  let ship = createShip({ x: 0, y: 0, angle: 0 });
+  let ship = start();
   let acc = 0;
   let simTime = 0;
   let steps = 0;
@@ -42,11 +42,11 @@ function runFixed(nextFrameMs) {
       steps++;
     }
   }
-  return { x: ship.x, y: ship.y, steps };
+  return { x: ship.pos.x, steps };
 }
 
 function runVariable(nextFrameMs) {
-  let ship = createShip({ x: 0, y: 0, angle: 0 });
+  let ship = start();
   let simTime = 0;
   let steps = 0;
   while (simTime < DURATION - 1e-9) {
@@ -55,21 +55,20 @@ function runVariable(nextFrameMs) {
     simTime += dt;
     steps++;
   }
-  return { x: ship.x, y: ship.y, steps };
+  return { x: ship.pos.x, steps };
 }
 
-const rows = [];
-for (const sc of scenarios) {
+const rows = scenarios.map((sc) => {
   const f = runFixed(sc.next);
   const v = runVariable(sc.next);
-  rows.push({
+  return {
     scenario: sc.name,
     "fixed x (px)": f.x.toFixed(6),
     "fixed steps": f.steps,
     "variable x (px)": v.x.toFixed(6),
     "variable steps": v.steps,
-  });
-}
+  };
+});
 console.table(rows);
 
 const fixedXs = new Set(rows.map((r) => r["fixed x (px)"]));

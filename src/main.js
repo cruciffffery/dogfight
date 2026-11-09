@@ -2,9 +2,19 @@ import { busyWait, createRecorder, readExperiment } from "./experiments.js";
 import { createInput, readCommand } from "./input.js";
 import { createLoop } from "./loop.js";
 import { setupCanvas } from "./render/canvas.js";
-import { createStarfield, drawBackground, drawBanner, drawHud, drawShip } from "./render/draw.js";
-import { createArena, wrap } from "./sim/arena.js";
-import { createShip, integrate, lerpShip } from "./sim/ship.js";
+import {
+  createStarfield,
+  drawBackground,
+  drawBanner,
+  drawHud,
+  drawScore,
+  drawWorld,
+} from "./render/draw.js";
+import { dummyPilot } from "./sim/ai.js";
+import { createArena, torusDelta } from "./sim/arena.js";
+import { Ship } from "./sim/entities/ship.js";
+import { Vector2 } from "./sim/vector.js";
+import { spawnAsteroid, World } from "./sim/world.js";
 
 const STEP = 1 / 60;
 const config = readExperiment();
@@ -16,50 +26,65 @@ const stars = createStarfield(arena);
 const input = createInput(window);
 const recorder = createRecorder({ seconds: config.recordSeconds });
 
-// ---- Стан гри: два знімки для інтерполяції ----
-const spawn = () => createShip({ x: arena.width / 2, y: arena.height / 2 });
-let previous = spawn();
-let current = spawn();
+// ---- Світ ----
+let world;
+let player;
+let dummy;
+
+function newMatch() {
+  world = new World({ arena, seed: 2026 });
+  player = world.spawn(
+    new Ship({ pos: new Vector2(arena.width * 0.3, arena.height / 2), name: "you" }),
+  );
+  dummy = world.spawn(
+    new Ship({
+      pos: new Vector2(arena.width * 0.75, arena.height / 2),
+      angle: Math.PI,
+      name: "dummy",
+      color: "#ff8a8a",
+      ai: dummyPilot,
+    }),
+  );
+  for (let i = 0; i < 5; i++) spawnAsteroid(world, { hunter: i === 0 });
+  probe.distance = Vector2.ZERO;
+  probe.logged = null;
+}
+
+const probe = { distance: Vector2.ZERO, logged: null };
 let showHud = true;
+const inputs = new Map();
+const AUTOPILOT = Object.freeze({ turn: 0, thrust: true, brake: false, fire: false });
 
-// Для експерименту 3: «розгорнута» позиція (без загортання) після 5 с газу
-const probe = { x: current.x, y: current.y, logged: null };
-
-const AUTOPILOT = Object.freeze({ turn: 0, thrust: true, brake: false });
+// ---- Демонстрація бага з `this` (див. README, розділ «Баг з this») ----
+// БАГ:     input.onPress("KeyF", player.fire);
+//          → fire викликається як fn(e): this === undefined → TypeError: reading 'destroyed'
+//          (а навіть якби this був, у fire прийшов би KeyboardEvent замість world)
+// ВИПРАВЛЕННЯ (обране): стрілкова функція фіксує, на кому і з чим викликати метод
+input.onPress("KeyF", () => player.fire(world));
 
 function simulate(dt) {
-  // фронти клавіш обробляються в кроці симуляції, тому й «споживаються» тут
-  if (input.justPressed("KeyR")) {
-    current = spawn();
-    probe.x = current.x;
-    probe.y = current.y;
-    probe.logged = null;
-  }
+  if (input.justPressed("KeyR")) newMatch();
   if (input.justPressed("KeyH")) showHud = !showHud;
   if (input.justPressed("KeyM")) recorder.restart();
 
-  const command = config.autopilot ? AUTOPILOT : readCommand(input);
+  inputs.set(player.id, config.autopilot ? AUTOPILOT : readCommand(input));
+  world.step(dt, inputs);
+  world.drainEvents(); // у Лабі 3 їх слухатимуть аудіо та HUD
 
-  previous = current;
-  const moved = integrate(current, command, dt);
-  probe.x += moved.x - current.x;
-  probe.y += moved.y - current.y;
-  current = wrap(moved, arena);
-
+  probe.distance = probe.distance.add(torusDelta(player.prevPos, player.pos, arena));
   input.endStep();
 }
 
 function logProbe(stats) {
-  if (!config.autopilot || probe.logged || stats.simTime < 5 - 1e-9) return;
+  if (!config.autopilot || probe.logged || world.time < 5 - 1e-9) return;
   probe.logged = {
     mode: `${stats.scheduler} · ${stats.timestep}`,
-    simTime: +stats.simTime.toFixed(4),
-    steps: stats.totalSteps,
-    x: +probe.x.toFixed(3),
-    y: +probe.y.toFixed(3),
-    speed: +Math.hypot(current.vx, current.vy).toFixed(3),
+    simTime: +world.time.toFixed(4),
+    steps: world.tick,
+    dx: +probe.distance.x.toFixed(3),
+    dy: +probe.distance.y.toFixed(3),
   };
-  console.log("[lab-01] позиція після 5 с газу:", probe.logged);
+  console.log("[lab] переміщення після 5 с газу:", probe.logged);
 }
 
 let renderedFrames = 0;
@@ -69,44 +94,46 @@ function render(alpha, stats) {
   recorder.onFrame(stats);
   logProbe(stats);
 
-  // ЕКСПЕРИМЕНТ 1: синхронно блокуємо потік на 100 мс кожен 60-й кадр
-  if (config.blockEvery && renderedFrames % config.blockEvery === 0) {
-    busyWait(config.blockMs);
-  }
+  if (config.blockEvery && renderedFrames % config.blockEvery === 0) busyWait(config.blockMs);
 
-  const ship = lerpShip(previous, current, alpha, arena);
+  const now = performance.now();
   drawBackground(view, arena, stars);
-  drawShip(view, arena, ship, performance.now());
+  drawWorld(view, world, alpha, now);
+
+  const you = world.scores.get(player.id) ?? 0;
+  const them = world.scores.get(dummy.id) ?? 0;
+  drawScore(view, `YOU ${you}   ·   DUMMY ${them}`);
 
   if (config.exp !== "none") {
     drawBanner(view, `EXPERIMENT: ${config.exp}${config.autopilot ? " + autopilot" : ""}`);
   }
 
   if (showHud) {
+    const fx = Object.entries(player.effects)
+      .filter(([, t]) => t > 0)
+      .map(([k, t]) => `${k} ${t.toFixed(1)}s`)
+      .join("  ");
     const lines = [
-      { text: "←/→ або A/D — поворот, ↑/W — газ" },
-      { text: "↓/S — гальмо, R — респавн, H — HUD" },
+      { text: `hp ${player.hp}  entities ${world.size}`, color: "#cfe0ff" },
+      { text: fx ? `effects: ${fx}` : "effects: —" },
+      { text: "←/→ поворот, ↑ газ, ↓ гальмо, Space вогонь" },
+      { text: "F — одиночний постріл, R — новий матч, H — HUD" },
     ];
     const r = recorder.result;
     if (r) {
-      lines.push({
-        text: `rec ${r.seconds}s: ${r.fps} fps, jitter ${r.jitterMs} ms`,
-        color: "#39d98a",
-      });
-      lines.push({
-        text: `p95 ${r.p95Ms} / max ${r.maxMs} ms, long ${r.longFrames}`,
-        color: "#39d98a",
-      });
-    } else {
-      lines.push({ text: `запис: ${Math.round(recorder.progress * 100)}% (M — заново)` });
+      lines.push({ text: `rec ${r.seconds}s: ${r.fps} fps, p99 ${r.p99Ms} ms`, color: "#39d98a" });
     }
     if (probe.logged) {
-      lines.push({ text: `5 с газу: x=${probe.logged.x}, y=${probe.logged.y}`, color: "#ffb020" });
+      lines.push({
+        text: `5 с газу: dx=${probe.logged.dx}, dy=${probe.logged.dy}`,
+        color: "#ffb020",
+      });
     }
     drawHud(view, stats, { targetSteps: 1 / STEP, lines });
   }
 }
 
+newMatch();
 const loop = createLoop({
   step: STEP,
   simulate,
@@ -117,5 +144,15 @@ const loop = createLoop({
 loop.start();
 canvas.focus();
 
-// Доступ з консолі DevTools / Playwright: window.__lab.recorder.result тощо
-window.__lab = { loop, recorder, probe, config };
+window.__lab = {
+  loop,
+  recorder,
+  probe,
+  config,
+  get world() {
+    return world;
+  },
+  get player() {
+    return player;
+  },
+};

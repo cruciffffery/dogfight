@@ -1,3 +1,4 @@
+import { lerpAngle } from "../sim/physics.js";
 import { screenSpace, worldSpace } from "./canvas.js";
 
 const COLORS = {
@@ -10,6 +11,9 @@ const COLORS = {
   cockpit: "#2bd4ff",
   flameOuter: "#ff7a1a",
   flameInner: "#ffe27a",
+  bullet: "#ffe27a",
+  rock: "#8a7a64",
+  rockEdge: "#c9b796",
   hud: "#cfe0ff",
   hudDim: "rgba(207, 224, 255, 0.55)",
   ok: "#39d98a",
@@ -17,7 +21,9 @@ const COLORS = {
   bad: "#ff4d5e",
 };
 
-/** Детермінований ГПВЧ (mulberry32) — зоряне небо однакове при кожному запуску. */
+export const PICKUP_COLORS = { shield: "#2bd4ff", rapid: "#ffb020", homing: "#d26bff" };
+
+/** Детермінований ГПВЧ — зоряне небо й форми астероїдів однакові при кожному запуску. */
 function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
@@ -49,7 +55,6 @@ export function drawBackground(view, arena, stars) {
   ctx.fillStyle = COLORS.arena;
   ctx.fillRect(0, 0, arena.width, arena.height);
 
-  // сітка — щоб рух було видно навіть без зірок
   ctx.strokeStyle = COLORS.grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -63,9 +68,9 @@ export function drawBackground(view, arena, stars) {
   }
   ctx.stroke();
 
+  ctx.fillStyle = COLORS.hull;
   for (const s of stars) {
     ctx.globalAlpha = s.a;
-    ctx.fillStyle = COLORS.hull;
     ctx.beginPath();
     ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
     ctx.fill();
@@ -77,7 +82,19 @@ export function drawBackground(view, arena, stars) {
   ctx.strokeRect(0, 0, arena.width, arena.height);
 }
 
-/** Корабель у локальних координатах: ніс дивиться вправо (+x), центр у (0, 0). */
+/** Позиція між попереднім і поточним кроком з урахуванням перельоту через край. */
+export function lerpPos(prev, cur, t, arena) {
+  let px = prev.x;
+  let py = prev.y;
+  if (cur.x - px > arena.width / 2) px += arena.width;
+  else if (px - cur.x > arena.width / 2) px -= arena.width;
+  if (cur.y - py > arena.height / 2) py += arena.height;
+  else if (py - cur.y > arena.height / 2) py -= arena.height;
+  return { x: px + (cur.x - px) * t, y: py + (cur.y - py) * t };
+}
+
+// ---------- форми в локальних координатах (ніс дивиться вправо) ----------
+
 function shipShape(ctx, ship, time) {
   if (ship.thrust) {
     const flicker = 0.75 + 0.25 * Math.sin(time * 0.045) + 0.15 * Math.sin(time * 0.13);
@@ -97,8 +114,7 @@ function shipShape(ctx, ship, time) {
     ctx.closePath();
     ctx.fill();
   }
-
-  ctx.fillStyle = COLORS.hull;
+  ctx.fillStyle = ship.color ?? COLORS.hull;
   ctx.strokeStyle = COLORS.hullEdge;
   ctx.lineWidth = 2;
   ctx.lineJoin = "round";
@@ -110,40 +126,148 @@ function shipShape(ctx, ship, time) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
-
   ctx.fillStyle = COLORS.cockpit;
   ctx.beginPath();
   ctx.ellipse(4, 0, 5, 3, 0, 0, Math.PI * 2);
   ctx.fill();
 }
 
+const rockCache = new Map();
+function rockPolygon(seed, radius) {
+  const key = `${seed}:${radius.toFixed(1)}`;
+  let pts = rockCache.get(key);
+  if (!pts) {
+    const rand = mulberry32(seed);
+    const n = 9 + Math.floor(rand() * 5);
+    pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const r = radius * (0.75 + rand() * 0.3);
+      pts.push([Math.cos(a) * r, Math.sin(a) * r]);
+    }
+    rockCache.set(key, pts);
+  }
+  return pts;
+}
+
+function asteroidShape(ctx, a) {
+  const pts = rockPolygon(a.shapeSeed, a.radius);
+  ctx.fillStyle = COLORS.rock;
+  ctx.strokeStyle = a.homing ? PICKUP_COLORS.homing : COLORS.rockEdge;
+  ctx.lineWidth = a.homing ? 3 : 2;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+function bulletShape(ctx, b) {
+  ctx.fillStyle = b.homing ? PICKUP_COLORS.homing : COLORS.bullet;
+  ctx.fillRect(-7, -1.5, 12, 3);
+}
+
+function pickupShape(ctx, p) {
+  const pulse = 1 + 0.12 * Math.sin(p.age * 6);
+  ctx.scale(pulse, pulse);
+  ctx.strokeStyle = PICKUP_COLORS[p.type];
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, 12, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = PICKUP_COLORS[p.type];
+  ctx.font = "bold 13px ui-monospace, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(p.type[0].toUpperCase(), 0, 1);
+}
+
 /**
- * Малює корабель через translate/rotate. Біля краю арени малюємо ще й «привид»
- * з іншого боку — так перетин межі виглядає безшовно.
+ * Малює сутність у кількох копіях біля країв арени, щоб перехід через край був безшовним.
+ * `shape(ctx, entity)` малює в локальних координатах.
  */
-export function drawShip(view, arena, ship, time) {
+function drawWrapped(ctx, arena, x, y, angle, radius, shape) {
+  const m = radius + 24;
+  const xs = [x];
+  const ys = [y];
+  if (x < m) xs.push(x + arena.width);
+  if (x > arena.width - m) xs.push(x - arena.width);
+  if (y < m) ys.push(y + arena.height);
+  if (y > arena.height - m) ys.push(y - arena.height);
+  for (const px of xs) {
+    for (const py of ys) {
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(angle);
+      shape();
+      ctx.restore();
+    }
+  }
+}
+
+function drawExplosion(ctx, e) {
+  const k = Math.max(0, e.ttl / e.maxTtl);
+  ctx.globalAlpha = k;
+  ctx.fillStyle = e.color;
+  for (const p of e.particles) ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+  ctx.globalAlpha = 1;
+}
+
+function drawHealthBar(ctx, x, y, ship) {
+  const w = 36;
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(x - w / 2, y - 30, w, 5);
+  const k = ship.hp / 100;
+  ctx.fillStyle = k > 0.5 ? COLORS.ok : k > 0.25 ? COLORS.warn : COLORS.bad;
+  ctx.fillRect(x - w / 2, y - 30, w * k, 5);
+  if (ship.effects?.shield > 0) {
+    ctx.strokeStyle = PICKUP_COLORS.shield;
+    ctx.globalAlpha = 0.6;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 24, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+/**
+ * Малює всі сутності світу з інтерполяцією між prev і поточним станом.
+ * Рендер лише ЧИТАЄ світ — нічого в ньому не змінює.
+ */
+export function drawWorld(view, world, alpha, time) {
   const { ctx } = view;
+  const arena = world.arena;
   worldSpace(view);
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, arena.width, arena.height);
   ctx.clip();
 
-  const margin = 40;
-  const xs = [ship.x];
-  const ys = [ship.y];
-  if (ship.x < margin) xs.push(ship.x + arena.width);
-  if (ship.x > arena.width - margin) xs.push(ship.x - arena.width);
-  if (ship.y < margin) ys.push(ship.y + arena.height);
-  if (ship.y > arena.height - margin) ys.push(ship.y - arena.height);
-
-  for (const x of xs) {
-    for (const y of ys) {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(ship.angle);
-      shipShape(ctx, ship, time);
-      ctx.restore();
+  for (const e of world) {
+    if (!e.alive) continue;
+    if (e.kind === "explosion") {
+      drawExplosion(ctx, e);
+      continue;
+    }
+    if (e.kind === "ship" && e.destroyed) continue;
+    const p = lerpPos(e.prevPos, e.pos, alpha, arena);
+    const angle = lerpAngle(e.prevAngle, e.angle, alpha);
+    switch (e.kind) {
+      case "ship":
+        drawWrapped(ctx, arena, p.x, p.y, angle, e.radius, () => shipShape(ctx, e, time));
+        drawHealthBar(ctx, p.x, p.y, e);
+        break;
+      case "asteroid":
+        drawWrapped(ctx, arena, p.x, p.y, angle, e.radius, () => asteroidShape(ctx, e));
+        break;
+      case "bullet":
+        drawWrapped(ctx, arena, p.x, p.y, angle, e.radius, () => bulletShape(ctx, e));
+        break;
+      case "pickup":
+        drawWrapped(ctx, arena, p.x, p.y, 0, e.radius, () => pickupShape(ctx, e));
+        break;
     }
   }
   ctx.restore();
@@ -156,7 +280,7 @@ function rateColor(value, target) {
   return COLORS.bad;
 }
 
-/** HUD у CSS-пікселях: steps/s, frames/s, час кадру + гістограма останніх кадрів. */
+/** HUD у CSS-пікселях: метрики циклу + довільні рядки + гістограма часу кадру. */
 export function drawHud(view, stats, info) {
   const { ctx } = view;
   screenSpace(view);
@@ -167,10 +291,11 @@ export function drawHud(view, stats, info) {
   const panelW = 300;
 
   ctx.fillStyle = "rgba(5, 7, 13, 0.72)";
-  ctx.fillRect(x - 8, y - 8, panelW, lh * (7 + info.lines.length) + 74);
+  ctx.fillRect(x - 8, y - 8, panelW, lh * (5 + info.lines.length) + 74);
 
   ctx.font = "600 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
   ctx.textBaseline = "top";
+  ctx.textAlign = "left";
 
   const row = (label, value, color = COLORS.hud) => {
     ctx.fillStyle = COLORS.hudDim;
@@ -188,9 +313,7 @@ export function drawHud(view, stats, info) {
     stats.frameTime > 1000 / 60 + 2 ? COLORS.warn : COLORS.hud,
   );
   row("work time", `${stats.workTime.toFixed(2)} ms`);
-  row("alpha", stats.alpha.toFixed(3));
   row("loop", `${stats.scheduler} · ${stats.timestep}`);
-  row("steps total", String(stats.totalSteps));
 
   ctx.font = "13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
   for (const line of info.lines) {
@@ -199,7 +322,6 @@ export function drawHud(view, stats, info) {
     y += lh;
   }
 
-  // Гістограма frameTime (stretch): 240 останніх кадрів, червоне — понад 16.7 мс
   y += 6;
   const h = 48;
   const w = panelW - 16;
@@ -220,6 +342,18 @@ export function drawHud(view, stats, info) {
     ctx.fillStyle = ms > 16.7 + 1 ? COLORS.bad : COLORS.ok;
     ctx.fillRect(x + i * bw, y + h - bh, Math.max(1, bw - 0.3), bh);
   }
+}
+
+/** Великий рахунок по центру зверху. */
+export function drawScore(view, text) {
+  const { ctx } = view;
+  screenSpace(view);
+  ctx.font = "700 22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillStyle = COLORS.hud;
+  ctx.fillText(text, view.cssWidth / 2, 14);
+  ctx.textAlign = "left";
 }
 
 export function drawBanner(view, text, color = COLORS.warn) {
