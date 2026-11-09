@@ -1,0 +1,14 @@
+{
+  "name": "@dogfight/shared",
+  "private": true,
+  "version": "0.5.0",
+  "type": "module",
+  "description": "Deterministic simulation, protocol and codecs shared by client and server",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "test": "node --test --test-reporter=spec \"test/**/*.test.js\"",
+    "determinism": "node -e \"import('./src/determinism.js').then(m => m.runScenario()).then(r => console.log(JSON.stringify(r)))\""
+  }
+}

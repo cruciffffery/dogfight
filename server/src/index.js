@@ -5,9 +5,11 @@
  *   npm run dev -w server        (node --watch, разом з Vite, який проксіює /api і /ws)
  */
 import { createServer } from "node:http";
+import { ARENAS } from "@dogfight/shared/arenas.js";
 import { loadConfig } from "./config.js";
 import { createHttpHandler } from "./http.js";
 import { startMatchLog } from "./log/matchlog.js";
+import { Match } from "./match.js";
 import { RoomManager } from "./rooms.js";
 import { attachWebSockets } from "./ws.js";
 
@@ -38,16 +40,35 @@ export function createGameServer(config = loadConfig(), log = console) {
     heartbeatKills: 0,
     socketErrors: 0,
   };
+  // Один авторитетний матч на кімнату; створюється з першим гравцем
+  const matchByRoom = new Map();
+  const matches = {
+    forRoom(room) {
+      let match = matchByRoom.get(room.id);
+      if (!match) {
+        match = new Match({ room, arena: ARENAS[room.arena] ?? ARENAS.classic, log });
+        matchByRoom.set(room.id, match);
+      }
+      return match;
+    },
+    all: () => [...matchByRoom.values()],
+  };
+  rooms.on("deleted", (room) => {
+    matchByRoom.get(room.id)?.stop();
+    matchByRoom.delete(room.id);
+  });
+
   const stats = () => ({
     ...counters,
     rooms: rooms.size,
     players: rooms.playerCount,
     rss: process.memoryUsage().rss,
     uptime: process.uptime(),
+    matches: matches.all().map((m) => m.stats()),
   });
 
   const server = createServer(createHttpHandler({ config, rooms, stats, log }));
-  const sockets = attachWebSockets({ server, config, rooms, log, counters });
+  const sockets = attachWebSockets({ server, config, rooms, matches, log, counters });
 
   rooms.create({ id: "alpha", name: "Alpha — classic", arena: "classic", persistent: true });
   rooms.create({ id: "rocks", name: "Rockfield", arena: "rockfield", persistent: true });
@@ -59,6 +80,7 @@ export function createGameServer(config = loadConfig(), log = console) {
     if (closing) return closing;
     closing = (async () => {
       server.close(); // перестати приймати нові з'єднання
+      for (const m of matches.all()) m.stop();
       await sockets.closeAll();
       for (const room of [...rooms]) rooms.delete(room.id); // кімната закривається → журнал дописується
       await Promise.all(logsDone);
@@ -67,7 +89,7 @@ export function createGameServer(config = loadConfig(), log = console) {
     return closing;
   }
 
-  return { server, rooms, counters, stats, close, config };
+  return { server, rooms, matches, counters, stats, close, config };
 }
 
 function listen(game) {

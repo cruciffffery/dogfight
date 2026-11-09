@@ -1,6 +1,8 @@
 /**
  * Точка входу: завантаження ресурсів → лобі → гра. Увесь «сценарій» — один async-ланцюжок.
  */
+
+import { createArena } from "@dogfight/shared/sim/arena.js";
 import { loadAll, loadJson, withRetry } from "./assets/loader.js";
 import { getAudioContext, registerBuffers, unlockOnGesture } from "./audio.js";
 import { readExperiment } from "./experiments.js";
@@ -9,11 +11,11 @@ import { Lobby } from "./lobby/lobby.js";
 import { mountLobbyView } from "./lobby/view.js";
 import { mountRoomUi } from "./net/chat-view.js";
 import { Connection } from "./net/connection.js";
+import { startOnlineGame } from "./online.js";
 import { setupCanvas } from "./render/canvas.js";
 import { setSprites } from "./render/draw.js";
 import { createLoadingScreen } from "./render/loading.js";
 import { createSprites } from "./render/sprites.js";
-import { createArena } from "./sim/arena.js";
 
 const config = readExperiment();
 const params = new URLSearchParams(location.search);
@@ -141,8 +143,9 @@ async function boot() {
     const conn = new Connection(Connection.defaultUrl());
     window.__lab.conn = conn;
     // join відправляється на КОЖНЕ відкриття — і після автоматичного перепідключення
+    const codec = params.get("codec") === "json" ? "json" : "binary";
     conn.addEventListener("open", () =>
-      conn.send({ type: "join", room: join.room.id, name: join.name }),
+      conn.send({ type: "join", room: join.room.id, name: join.name, codec }),
     );
     // UI підписується ДО підключення — щоб не пропустити перший roster
     const ui = mountRoomUi(conn, { roomName: join.room.name, myId: null });
@@ -153,10 +156,19 @@ async function boot() {
       throw err;
     });
     window.__lab.playerId = welcome.playerId;
+    window.__lab.welcome = welcome;
   }
 
-  const game = startGame({ view, arenaConfig: join.arena, name: join.name, config });
-  Object.assign(window.__lab, game);
+  const game = join.room
+    ? startOnlineGame({
+        view,
+        conn: window.__lab.conn,
+        welcome: window.__lab.welcome,
+        config,
+        params,
+      })
+    : startGame({ view, arenaConfig: join.arena, name: join.name, config });
+  window.__lab.game = game;
   canvas.focus();
 }
 

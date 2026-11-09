@@ -1,17 +1,18 @@
 /**
  * Локальна гра (до появи сервера): світ + цикл + рендер + HUD + звук.
  */
+
+import { dummyPilot } from "@dogfight/shared/sim/ai.js";
+import { createArena, torusDelta } from "@dogfight/shared/sim/arena.js";
+import { Ship } from "@dogfight/shared/sim/entities/ship.js";
+import { Vector2 } from "@dogfight/shared/sim/vector.js";
+import { spawnAsteroid, World } from "@dogfight/shared/sim/world.js";
 import { attachAudio } from "./audio.js";
 import { busyWait, createRecorder } from "./experiments.js";
 import { createHud } from "./hud.js";
 import { createInput, readCommand } from "./input.js";
 import { createLoop } from "./loop.js";
 import { createStarfield, drawBackground, drawBanner, drawHud, drawWorld } from "./render/draw.js";
-import { dummyPilot } from "./sim/ai.js";
-import { createArena, torusDelta } from "./sim/arena.js";
-import { Ship } from "./sim/entities/ship.js";
-import { Vector2 } from "./sim/vector.js";
-import { spawnAsteroid, World } from "./sim/world.js";
 
 const STEP = 1 / 60;
 const AUTOPILOT = Object.freeze({ turn: 0, thrust: true, brake: false, fire: false });

@@ -3,11 +3,11 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
+import { parseClientMessage } from "@dogfight/shared/protocol/messages.js";
 import { loadConfig } from "../src/config.js";
 import { safeJoin } from "../src/http.js";
 import { startMatchLog } from "../src/log/matchlog.js";
 import { readReplay } from "../src/log/replay.js";
-import { parseClientMessage } from "../src/protocol.js";
 import { createTokenBucket } from "../src/ratelimit.js";
 import { Room, RoomManager } from "../src/rooms.js";
 
@@ -15,12 +15,12 @@ describe("protocol", () => {
   const parse = (obj) => parseClientMessage(JSON.stringify(obj));
 
   test("accepts valid join / chat / leave", () => {
-    assert.deepEqual(parse({ v: 0, type: "join", room: "alpha", name: " Ann " }), {
+    assert.deepEqual(parse({ v: 1, type: "join", room: "alpha", name: " Ann " }), {
       ok: true,
-      msg: { type: "join", room: "alpha", name: "Ann" },
+      msg: { type: "join", room: "alpha", name: "Ann", codec: "binary" },
     });
-    assert.equal(parse({ v: 0, type: "chat", text: "hi" }).ok, true);
-    assert.equal(parse({ v: 0, type: "leave" }).ok, true);
+    assert.equal(parse({ v: 1, type: "chat", text: "hi" }).ok, true);
+    assert.equal(parse({ v: 1, type: "leave" }).ok, true);
   });
 
   test("rejects malformed input without throwing", () => {
@@ -28,16 +28,16 @@ describe("protocol", () => {
       "not json",
       "[]",
       "null",
-      JSON.stringify({ v: 1, type: "chat", text: "x" }),
-      JSON.stringify({ v: 0, type: "fly" }),
-      JSON.stringify({ v: 0, type: "chat", text: "" }),
-      JSON.stringify({ v: 0, type: "chat", text: 5 }),
-      JSON.stringify({ v: 0, type: "chat", text: "x".repeat(201) }),
-      JSON.stringify({ v: 0, type: "join", room: "../etc", name: "a" }),
-      JSON.stringify({ v: 0, type: "join", room: "alpha", name: "<script>" }),
-      JSON.stringify({ v: 0, type: "join", room: "alpha", name: "a", admin: true }),
-      JSON.stringify({ v: 0, type: "toString" }),
-      JSON.stringify({ v: 0, type: "__proto__" }),
+      JSON.stringify({ v: 9, type: "chat", text: "x" }),
+      JSON.stringify({ v: 1, type: "fly" }),
+      JSON.stringify({ v: 1, type: "chat", text: "" }),
+      JSON.stringify({ v: 1, type: "chat", text: 5 }),
+      JSON.stringify({ v: 1, type: "chat", text: "x".repeat(201) }),
+      JSON.stringify({ v: 1, type: "join", room: "../etc", name: "a" }),
+      JSON.stringify({ v: 1, type: "join", room: "alpha", name: "<script>" }),
+      JSON.stringify({ v: 1, type: "join", room: "alpha", name: "a", admin: true }),
+      JSON.stringify({ v: 1, type: "toString" }),
+      JSON.stringify({ v: 1, type: "__proto__" }),
     ]) {
       const r = parseClientMessage(bad);
       assert.equal(r.ok, false, `should reject: ${bad}`);
@@ -46,7 +46,7 @@ describe("protocol", () => {
   });
 
   test("rejects oversized messages", () => {
-    const r = parseClientMessage(JSON.stringify({ v: 0, type: "chat", text: "x" }), {
+    const r = parseClientMessage(JSON.stringify({ v: 1, type: "chat", text: "x" }), {
       maxBytes: 10,
     });
     assert.equal(r.ok, false);

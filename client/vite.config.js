@@ -58,6 +58,14 @@ const SERVER = process.env.SERVER_URL ?? "http://localhost:8080";
 
 export default defineConfig({
   plugins: [failureLab()],
+  build: {
+    rollupOptions: {
+      input: {
+        main: new URL("./index.html", import.meta.url).pathname,
+        determinism: new URL("./determinism.html", import.meta.url).pathname,
+      },
+    },
+  },
   server: {
     // У dev клієнт і сервер на різних портах: Vite проксіює API і WebSocket на ігровий сервер
     proxy: {

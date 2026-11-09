@@ -5,15 +5,22 @@
  * Кожен сокет має:
  *   - слухача "error" (інакше перша ж помилка сокета обвалить увесь процес);
  *   - token bucket на вхідні повідомлення;
- *   - валідацію кожного повідомлення (protocol.js);
+ *   - валідацію кожного повідомлення (@dogfight/shared/protocol/messages.js);
  *   - політику для повільних клієнтів (bufferedAmount).
  */
+
+import { CodecError, decodeInput, MSG } from "@dogfight/shared/codec/index.js";
+import {
+  CLOSE,
+  encode,
+  parseClientMessage,
+  validateInput,
+} from "@dogfight/shared/protocol/messages.js";
 import { WebSocket, WebSocketServer } from "ws";
-import { CLOSE, encode, parseClientMessage } from "./protocol.js";
 import { createTokenBucket } from "./ratelimit.js";
 import { RoomError } from "./rooms.js";
 
-export function attachWebSockets({ server, config, rooms, log = console, counters }) {
+export function attachWebSockets({ server, config, rooms, matches, log = console, counters }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: config.maxPayload });
   let nextPlayerId = 1;
 
@@ -85,7 +92,7 @@ export function attachWebSockets({ server, config, rooms, log = console, counter
         return;
       }
       counters.messagesOut += 1;
-      counters.bytesOut += data.length;
+      counters.bytesOut += typeof data === "string" ? data.length : data.byteLength;
       socket.send(data);
     }
 
@@ -96,19 +103,33 @@ export function attachWebSockets({ server, config, rooms, log = console, counter
       const room = rooms.get(msg.room);
       if (!room) return close(CLOSE.NO_ROOM, "no such room");
       if (room.isFull) return close(CLOSE.ROOM_FULL, "room full");
-      const player = { id: nextPlayerId++, name: msg.name, send };
+      const player = { id: nextPlayerId++, name: msg.name, send, shipId: 0, skin: "blue" };
       clearTimeout(joinTimer);
+      const match = matches.forRoom(room);
+      const ship = match.addPlayer(player, { codec: msg.codec });
+      player.shipId = ship.id;
+      player.skin = ship.skin;
       state.player = player;
       state.room = room;
-      // Спочатку welcome (клієнт дізнається свій id), потім join → roster усім, включно з ним
-      send(encode("welcome", { playerId: player.id, room: room.toJSON() }), { critical: true });
-      try {
-        room.join(player);
-      } catch (err) {
-        state.room = null;
-        if (err instanceof RoomError) return close(CLOSE.ROOM_FULL, err.message);
-        throw err;
-      }
+      state.match = match;
+      // Спочатку welcome (клієнт дізнається свій id і корабель), потім roster усім
+      send(
+        encode("welcome", {
+          playerId: player.id,
+          shipId: ship.id,
+          room: room.toJSON(),
+          arena: match.arenaConfig,
+          tickRate: 30,
+          codec: msg.codec,
+        }),
+        { critical: true },
+      );
+      room.join(player);
+    }
+
+    function handleInput(seq, cmds) {
+      if (!state.match) return close(CLOSE.BAD_MESSAGE, "input before join");
+      state.match.onInput(state.player.id, seq, cmds);
     }
 
     socket.on("message", (data, isBinary) => {
@@ -118,7 +139,17 @@ export function attachWebSockets({ server, config, rooms, log = console, counter
         counters.rateLimited += 1;
         return close(CLOSE.RATE_LIMITED, "rate limit");
       }
-      if (isBinary) return close(CLOSE.BAD_MESSAGE, "binary not supported in v0");
+      if (isBinary) {
+        try {
+          if (data[0] !== MSG.input) throw new CodecError(`unexpected binary type ${data[0]}`);
+          const { seq, cmds } = decodeInput(data);
+          const msg = validateInput(seq, cmds);
+          return handleInput(msg.seq, msg.cmds);
+        } catch (err) {
+          counters.badMessages += 1;
+          return close(CLOSE.BAD_MESSAGE, String(err.message).slice(0, 100));
+        }
+      }
       const parsed = parseClientMessage(data, { maxBytes: config.maxPayload });
       if (!parsed.ok) {
         counters.badMessages += 1;
@@ -131,6 +162,10 @@ export function attachWebSockets({ server, config, rooms, log = console, counter
         case "chat":
           if (!state.room) return close(CLOSE.BAD_MESSAGE, "chat before join");
           return state.room.chat(state.player.id, msg.text);
+        case "input":
+          return handleInput(msg.seq, msg.cmds);
+        case "ping":
+          return send(encode("pong", { t: msg.t }), { critical: true });
         case "leave":
           return close(1000, "bye");
       }
@@ -143,8 +178,12 @@ export function attachWebSockets({ server, config, rooms, log = console, counter
     socket.on("close", (code) => {
       clearTimeout(joinTimer);
       counters.connections -= 1;
-      state.room?.leave(state.player.id, `close ${code}`);
+      if (state.room) {
+        state.match?.removePlayer(state.player.id);
+        state.room.leave(state.player.id, `close ${code}`);
+      }
       state.room = null;
+      state.match = null;
     });
   });
 

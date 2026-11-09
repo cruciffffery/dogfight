@@ -1,6 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { decodeSnapshot } from "@dogfight/shared/codec/binary.js";
 import { WebSocket } from "ws";
 import { loadConfig } from "../src/config.js";
 import { createGameServer, listen } from "../src/index.js";
@@ -26,8 +27,16 @@ export function connect(url, options) {
   const ws = new WebSocket(url, options);
   const inbox = [];
   const waiters = [];
-  ws.on("message", (data) => {
-    const msg = JSON.parse(data.toString());
+  ws.on("message", (data, isBinary) => {
+    const msg = isBinary
+      ? { type: "snapshot", ...decodeSnapshot(data) }
+      : JSON.parse(data.toString());
+    if (msg.type === "snapshot" && inbox.filter((m) => m.type === "snapshot").length > 50) {
+      inbox.splice(
+        inbox.findIndex((m) => m.type === "snapshot"),
+        1,
+      ); // не накопичувати тисячі знімків
+    }
     inbox.push(msg);
     for (const w of [...waiters]) {
       if (w.match(msg)) {
@@ -48,7 +57,7 @@ export function connect(url, options) {
       ws.once("open", resolve);
       ws.once("error", reject);
     }),
-    send: (msg) => ws.send(JSON.stringify({ v: 0, ...msg })),
+    send: (msg) => ws.send(JSON.stringify({ v: 1, ...msg })),
     waitFor(type, pred = () => true, timeoutMs = 2000) {
       const match = (m) => m.type === type && pred(m);
       const found = inbox.find(match);

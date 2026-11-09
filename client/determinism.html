@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <title>dogfight — determinism check</title>
+  </head>
+  <body style="background: #05070d; color: #cfe0ff; font: 16px monospace; padding: 24px">
+    <p>Еталонний сценарій симуляції (shared/src/determinism.js) у браузері:</p>
+    <pre id="out">running…</pre>
+    <p>Порівняйте з <code>npm run determinism -w shared</code> у Node — хеші мають збігтися.</p>
+    <script type="module">
+      import { runScenario } from "@dogfight/shared/determinism.js";
+
+      const result = await runScenario();
+      document.getElementById("out").textContent = JSON.stringify(result, null, 2);
+      window.__determinism = result;
+    </script>
+  </body>
+</html>

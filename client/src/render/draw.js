@@ -1,4 +1,4 @@
-import { lerpAngle } from "../sim/physics.js";
+import { lerpAngle } from "@dogfight/shared/sim/physics.js";
 import { screenSpace, worldSpace } from "./canvas.js";
 
 const COLORS = {

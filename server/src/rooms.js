@@ -58,7 +58,12 @@ export class Room extends EventEmitter {
   }
 
   roster() {
-    return [...this.players.values()].map((p) => ({ id: p.id, name: p.name }));
+    return [...this.players.values()].map((p) => ({
+      id: p.id,
+      name: p.name,
+      shipId: p.shipId ?? 0,
+      skin: p.skin ?? "blue",
+    }));
   }
 
   /** Розіслати всім (крім except). `critical` — не можна відкидати для повільних клієнтів. */

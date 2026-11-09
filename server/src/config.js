@@ -34,8 +34,8 @@ export function loadConfig(env = process.env) {
     joinTimeoutMs: int(env, "JOIN_TIMEOUT_MS", 5000, { min: 100 }),
     heartbeatMs: int(env, "HEARTBEAT_MS", 15000, { min: 50 }),
     rateLimit: {
-      perSecond: int(env, "RATE_PER_SECOND", 30, { min: 1 }),
-      burst: int(env, "RATE_BURST", 60, { min: 1 }),
+      perSecond: int(env, "RATE_PER_SECOND", 60, { min: 1 }), // 30 input/с + ping + чат
+      burst: int(env, "RATE_BURST", 120, { min: 1 }),
     },
     slowClient: {
       dropAbove: int(env, "SLOW_DROP_BYTES", 256 * 1024),

@@ -1,7 +1,7 @@
 {
   "name": "@dogfight/client",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,5 +12,8 @@
   },
   "devDependencies": {
     "vite": "^7.3.8"
+  },
+  "dependencies": {
+    "@dogfight/shared": "*"
   }
 }

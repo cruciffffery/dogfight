@@ -39,6 +39,7 @@ export class Ship extends Entity {
     // компонент «активні ефекти» — заповнюється підсилювачами (Pickup)
     this.effects = { shield: 0, rapid: 0, homing: 0 };
     this.ai = ai; // для тренувального манекена (не людина)
+    this.playerId = null; // власник-гравець на сервері (Лаба 5)
   }
 
   get hp() {
@@ -79,6 +80,8 @@ export class Ship extends Entity {
       vel: this.vel.add(dir.scale(SHIP_RULES.bulletSpeed)),
       ownerId: this.id,
     });
+    // номер вводу, що породив кулю: клієнт зіставить передбачену кулю з серверною
+    bullet.seq = this.command.seq ?? 0;
     if (this.effects.homing > 0) {
       withHoming(bullet, { targetKind: "ship", turnRate: 4.5, range: 420, ignoreId: this.id });
     }

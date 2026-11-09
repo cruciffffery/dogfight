@@ -1,13 +1,14 @@
 {
   "name": "dogfight",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "description": "Real-time multiplayer browser game (semester project)",
   "engines": {
     "node": ">=22.9"
   },
   "workspaces": [
+    "shared",
     "client",
     "server"
   ],
@@ -17,7 +18,7 @@
     "dev:server": "npm run dev -w server",
     "build": "npm run build -w client",
     "start": "npm run start -w server",
-    "test": "npm test -w server",
+    "test": "npm test -w shared -w server",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "check": "biome check .",

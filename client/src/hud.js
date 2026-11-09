@@ -58,13 +58,14 @@ export function createHud(bus, { nameOf = (id) => `#${id}`, localId = () => null
       ctx.fillText(`${nameOf(id)}  ${total}`, view.cssWidth - 16, y);
       y += 18;
     }
+    // стрічка подій — під таблицею рахунку (низ правого кута зайнятий netgraph)
     ctx.font = "13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-    y = view.cssHeight - 20;
+    y += 8;
     for (const f of feed) {
       ctx.globalAlpha = Math.min(1, 5 - f.age);
-      ctx.fillStyle = "#cfe0ff";
+      ctx.fillStyle = "#8fa3cc";
       ctx.fillText(f.text, view.cssWidth - 16, y);
-      y -= 18;
+      y += 17;
     }
     ctx.globalAlpha = 1;
     ctx.textAlign = "left";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { CLOSE } from "../src/protocol.js";
+import { CLOSE } from "@dogfight/shared/protocol/messages.js";
 import { connect, startTestServer } from "./helpers.js";
 
 describe("HTTP API", () => {
@@ -86,7 +86,7 @@ describe("WebSocket lifecycle", () => {
   test("invalid message → close 4001", async () => {
     const c = connect(srv.wsUrl);
     await c.opened;
-    c.ws.send('{"v":0,"type":"hack"}');
+    c.ws.send('{"v":1,"type":"hack"}');
     const { code, reason } = await c.closed;
     assert.equal(code, CLOSE.BAD_MESSAGE);
     assert.match(reason, /unknown type/);

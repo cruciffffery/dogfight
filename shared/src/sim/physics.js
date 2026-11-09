@@ -15,6 +15,13 @@ export const SHIP = Object.freeze({
 
 const TAU = Math.PI * 2;
 
+/**
+ * ЕКСПЕРИМЕНТ Лаби 5 («зламай детермінізм»): якщо amount > 0, тяга множиться на
+ * випадковий коефіцієнт з Math.random(). Клієнт і сервер отримають різні числа —
+ * і передбачення почне розходитись із сервером. За замовчуванням вимкнено.
+ */
+export const chaos = { amount: 0 };
+
 /** Нормалізує кут у [-π, π). */
 export function wrapAngle(a) {
   return ((((a + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
@@ -35,7 +42,10 @@ export function lerpAngle(a, b, t) {
 export function integrate(ship, input, dt) {
   const angle = wrapAngle(ship.angle + input.turn * SHIP.turnRate * dt);
   let vel = ship.vel;
-  if (input.thrust) vel = vel.add(Vector2.fromAngle(angle, SHIP.thrustAccel * dt));
+  if (input.thrust) {
+    const noise = chaos.amount ? 1 + (Math.random() - 0.5) * chaos.amount : 1;
+    vel = vel.add(Vector2.fromAngle(angle, SHIP.thrustAccel * dt * noise));
+  }
   const k = SHIP.drag + (input.brake ? SHIP.brakeDrag : 0);
   vel = vel.scale(Math.exp(-k * dt)).clampLength(SHIP.maxSpeed);
   return { pos: ship.pos.add(vel.scale(dt)), vel, angle, thrust: input.thrust };
