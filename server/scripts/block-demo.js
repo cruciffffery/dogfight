@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { WebSocket } from "ws";
 
 const PORT = 8098;
-const server = spawn(process.execPath, ["src/index.js"], {
+const server = spawn(process.execPath, ["src/index.ts"], {
   cwd: join(import.meta.dirname, ".."),
   env: {
     ...process.env,

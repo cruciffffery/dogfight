@@ -85,7 +85,7 @@ await generate();
 console.log(`file: ${(statSync(file).size / 1e6).toFixed(0)} MB`);
 
 async function startServer() {
-  const server = spawn(process.execPath, ["src/index.js"], {
+  const server = spawn(process.execPath, ["src/index.ts"], {
     cwd: ROOT,
     env: { ...process.env, PORT: String(PORT), LOG_DIR, ENABLE_DEBUG_ROUTES: "1" },
     stdio: ["ignore", "pipe", "inherit"],

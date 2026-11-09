@@ -675,3 +675,93 @@ client/determinism.html       той самий еталонний сценар�
 Обрано **100 мс ≈ 3 тіки**: на «підручникових» 2 інтервалах кожен десятий кадр без даних (джитер ±30 мс плюс втрачені знімки), а 133 мс не дають помітного виграшу і додають ще 33 мс «минулого». Повна компенсація цієї затримки при влучаннях — лаг-компенсація на сервері (Stretch, не зроблено).
 
 **Обмеження.** Детермінізм перевірено між V8 у Node і Chromium (однаковий хеш `15496668` еталонного сценарію). `Math.sin/cos/exp` у різних рушіях (SpiderMonkey у Firefox, JavaScriptCore у Safari) можуть відрізнятись в останньому біті. Це дасть мікроскопічні корекції, але не розсинхронізацію: сервер однаково авторитетний.
+
+---
+
+## Лаба 6 — TypeScript для протоколу і симуляції
+
+### Налаштування
+
+- `tsconfig.base.json`: `strict`, **`noUncheckedIndexedAccess`**, `verbatimModuleSyntax`, `erasableSyntaxOnly`, `noImplicitOverride`, `allowImportingTsExtensions`, `noEmit`. Кожен пакет розширює базовий: `shared/` і `server/` — `module: NodeNext`, `client/` — `ESNext` + `moduleResolution: bundler` + DOM.
+- `npm run typecheck` у корені запускає `tsc --noEmit` у кожному workspace; у CI (`.github/workflows/ci.yml`) — `npm ci → typecheck → check (Biome) → test`.
+- **Сервер виконує `.ts` напряму:** Node 22.18+ сам зрізає типи (`node src/index.ts`), без `tsx` і кроку збирання. Тому заборонено все, що не можна просто стерти: `enum`, `namespace`, параметри-властивості (`erasableSyntaxOnly` це перевіряє), а імпорти пишуться з `.ts`.
+- **Vite не перевіряє типи** (лише стирає їх через esbuild), тому `npm run build -w client` = `tsc --noEmit && vite build`.
+- Тести переїхали на **Vitest** (`shared/`, `server/`): 64 тести; детермінізм перевіряє хеш еталонного сценарію в Node і в браузері (`/determinism.html`), обидва дають `63c4ea8a`.
+
+**Підсумок:** 0 помилок `tsc` у трьох пакетах, **0 `any`**, **2 приведення `as`** (ліміт — менше 5), обидва з коментарем:
+
+| #   | Де                                        | Навіщо                                                                                                                                        |
+| --- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `shared/src/types.ts` → `brandInt()`      | конструктор брендованого типу: _єдине_ місце, де `number` стає `EntityId`/`PlayerId`, і то після перевірки `Number.isInteger(n) && n >= 0`    |
+| 2   | `shared/src/sim/world.ts` → `makeEvent()` | `{ type: K, detail: WorldEvents[K] }` для узагальненого `K` компілятор не «розподіляє» на об'єднання `WorldEvent`, хоча тип справді коректний |
+
+Решта місць, де в JS були б приведення, переписані: `querySelector` → `$(root, selector, HTMLInputElement)` з `instanceof`; `document.getElementById("game")` → перевірка `instanceof HTMLCanvasElement`; `JSON.parse` → `unknown` + zod; `catch (err)` → `unknown` + звуження.
+
+### Протокол: одна схема, один тип, обидва напрями
+
+`shared/src/protocol.ts` — єдине джерело правди: zod-схеми для **кожного** повідомлення клієнт→сервер і сервер→клієнт і для знімка; TypeScript-типи _виводяться_ з них (`z.infer`):
+
+```ts
+export const ClientMessageSchema = z.discriminatedUnion("type", [join, chat, ping, input, leave]);
+export type ClientMessage = z.infer<typeof ClientMessageSchema>;
+
+export function parseClientMessage(raw: unknown): Result<ClientMessage>; // ніколи не кидає
+export function parseServerMessage(raw: unknown): Result<ServerMessage>; // клієнт теж не довіряє мережі
+```
+
+- Рукописний валідатор Лаби 4 видалено. Сервер на `{ ok: false }` пише в журнал і закриває сокет із кодом 4001, як і раніше.
+- **Бінарний кодек** типізований: `encodeSnapshot(snap: Snapshot): ArrayBuffer` перевіряє діапазони (u8/u16/u32, скінченні float), `decodeSnapshot` перевіряє версію, довжину, `kind` і тип події і на будь-яких байтах повертає або `Snapshot`, або `CodecError`. Розшифровані команди з бінарного input проходять ту саму zod-схему `CommandSchema`, що й JSON.
+- `interface Codec { encodeSnapshot; decodeSnapshot; encodeInput }` — дві реалізації (`binaryCodec`, `jsonCodec`). Сервер тримає кодек кожного гравця як `Codec`, не знаючи, який саме.
+- **Кожен `switch` по `type`/`kind` закінчується `assertNever(x)`** (`default: const _: never = x`): `Connection.#dispatch`, `ws.ts handle()`, `entityState()`, `eventState()`, `drawWorld()`, `toRenderEntity()`, `emitEvent()`, кодек. Новий тип повідомлення без гілки — помилка компіляції, а не тихе ігнорування.
+- **Конфіг** — zod-схема над `process.env` з типами і значеннями за замовчуванням (`z.coerce.number().int().min(…).default(…)`), порожні рядки → «не задано». Невалідне значення валить старт із назвою змінної.
+- **Типізовані події:** `class Room extends EventEmitter<RoomEvents>` (generic з `@types/node`), `RoomManager extends EventEmitter<{ created: [Room]; deleted: [Room] }>`, а в клієнті й симуляції — власна `Bus<M>` поверх `EventTarget`: `World extends Bus<WorldEvents>`, `Lobby extends Bus<LobbyEvents>`, `Connection extends Bus<ConnectionEvents>`.
+
+### Рамка (фреймворк): не додавав — і чому
+
+Лобі (~170 рядків) і HUD/чат (~150) працюють на `Bus<…>` + DOM. Типізовані події дали саме те, за чим зазвичай беруть фреймворк: `lobby.on("rooms", rooms => …)` знає тип `rooms`, відписка — один `AbortController`. Реактивності, діфінгу дерева чи роутера цьому UI не потрібно: список кімнат перемальовується раз на 5 с через `replaceChildren`, чат додає рядок. Canvas і ігровий цикл лишаються ванільними за умовою курсу.
+
+**Ціна, яку я реально заплатив за типи на межі, — zod у клієнті:** головний бандл виріс з **49.0 КБ / 19.7 КБ gzip** (Лаба 5) до **150.5 КБ / 48.3 КБ gzip**. React + ReactDOM додали б ще ~45 КБ gzip без жодної нової властивості. Якщо розмір стане проблемою, перший крок — `zod/mini` у клієнті (та сама схема, менший рантайм), а не відмова від валідації.
+
+### What TypeScript found
+
+1. **Манекен повертав на ±0.6.** `dummyPilot` віддавав `turn: 0.6`, а `Command.turn` — це `-1 | 0 | 1`. У мережі zod відкинув би таку команду, а бінарний кодек упакував би `0.6 + 1` у 2 біти як сміття. Боти Лаби 7 використовують цю ж функцію, тож тут це вистрілило б.
+2. **Підсилювачі на сервері з'являлись удвічі рідше.** `defaultDirector(world, _dt)` рахував інтервал як `tick % (60 · pickupEvery)`: тіки вважались 60-герцовими, а сервер іде на 30 Гц. Параметр `dt` типу `Director` був позначений невикористаним (`_dt`); коли тип змусив про нього згадати, баг став очевидним. Тепер `round(pickupEvery / dt)`. Через це змінився еталонний хеш (`15496668` → `63c4ea8a`, підсилювач тепер з'являється на 180-му тіку).
+3. **Клієнт не перевіряв жодного повідомлення сервера.** `JSON.parse(e.data)` повертав `any`, і далі код вірив у будь-яку форму. Тепер `unknown` → `parseServerMessage` (zod), а невалідний кадр пишеться в консоль і відкидається.
+4. **Офлайн-кулі без `seq`.** `Ship.fire()` записує `bullet.seq = this.command.seq`, але офлайн-гра клала в `World.step` команди з `readCommand()`, де `seq` немає. `SeqCommand` зробив поле обов'язковим.
+5. **`readCommand()` повертав `turn: number`.** `(right ? 1 : 0) - (left ? 1 : 0)` має тип `number`, а не `-1 | 0 | 1`. Переписано так, що тип виводиться як літеральний.
+6. **Після `close()` сервер продовжував обробляти буфер сокета.** Типізований тест із точними лічильниками відмов показав `rate_limit: 16` замість `1`: флудер, якого вже закрили, «набивав» метрики і викликав `close()` ще 15 разів. Тепер повідомлення після `close()` ігноруються (`readyState !== OPEN`).
+7. **`noUncheckedIndexedAccess`** знайшов кілька місць, де індекс міг дати `undefined`: `url.split("?")[0]` у middleware Vite, `stats.history[i]` у HUD, `pts[0][0]` у малюванні астероїда, `items[0]` у буфері знімків. Справжнього падіння жодне не дало б, але тепер кожне явно обробляє порожній випадок.
+8. **Відписка від подій `Connection` у `chat-view`** робилась парою `addEventListener`/`removeEventListener` з різними об'єктами-функціями. Тепер `conn.on()` повертає функцію відписки, і всі підписки знімаються однаково.
+
+### Три типи, які варто пояснити JS-розробнику
+
+**1. Брендовані id** (`shared/src/types.ts`):
+
+```ts
+type EntityId = number & { readonly [brand]: "EntityId" };
+type PlayerId = number & { readonly [brand]: "PlayerId" };
+```
+
+У рантаймі це звичайні числа (бренд — лише тип, `[brand]` ніколи не існує). Але `room.leave(ship.id)` — помилка компіляції: функція чекає `PlayerId`, а `ship.id` — `EntityId`. До TypeScript корабель #3 і гравець #3 були взаємозамінні, і переплутати їх у `Match.removePlayer` було б дуже легко. Отримати бренд можна лише через `EntityId(n)` / `PlayerId(n)`, які перевіряють, що це невід'ємне ціле.
+
+**2. `Bus<M>` — назва події пов'язана з формою її даних** (`shared/src/bus.ts`):
+
+```ts
+class Bus<M extends object> extends EventTarget {
+  emit<K extends keyof M & string>(type: K, detail: M[K]): void
+  on<K extends keyof M & string>(type: K, fn: (detail: M[K]) => void): () => void
+}
+class World extends Bus<WorldEvents> { … }   // WorldEvents = { fired: {...}; hit: {...}; … }
+```
+
+`K` — це **конкретна** назва (`"scored"`), а `M[K]` — тип саме її payload. `world.on("scored", d => d.total)` — `d` виведено автоматично; `world.emit("scored", { points: 5 })` без `total` — помилка; `world.on("scroed", …)` — помилка. Один і той самий `attachAudio(bus: Bus<WorldEvents>)` приймає і офлайн-`World`, і мережеву шину клієнта.
+
+**3. Знімок як дискриміноване об'єднання, виведене з zod** (`shared/src/protocol.ts`):
+
+```ts
+const EntityStateSchema = z.discriminatedUnion("kind", [ShipStateSchema, BulletStateSchema, …]);
+type EntityState = z.infer<typeof EntityStateSchema>;
+// = { kind: 1; vx; vy; hp; … } | { kind: 2; owner; seq; homing; … } | …
+```
+
+Схема — і перевірка в рантаймі (JSON-кодек, `parseServerMessage`), і тип для компілятора. Усередині `switch (e.kind) { case KIND.ship: … }` TypeScript **знає**, що в `e` є `hp` і `vx`, а в `case KIND.bullet` — `owner` і `seq`. Бінарний декодер будує ті самі об'єкти, тож для решти коду немає різниці, звідки прийшов знімок. Нове поле в схемі ламає компіляцію всюди, де його треба заповнити (`entityState()`, кодек).

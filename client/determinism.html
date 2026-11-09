@@ -9,7 +9,7 @@
     <pre id="out">running…</pre>
     <p>Порівняйте з <code>npm run determinism -w shared</code> у Node — хеші мають збігтися.</p>
     <script type="module">
-      import { runScenario } from "@dogfight/shared/determinism.js";
+      import { runScenario } from "@dogfight/shared/determinism.ts";
 
       const result = await runScenario();
       document.getElementById("out").textContent = JSON.stringify(result, null, 2);

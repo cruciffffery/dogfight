@@ -7,17 +7,16 @@
  * є кулі, астероїди, підсилювачі й події — як у живому матчі.
  */
 
-import { ARENAS } from "@dogfight/shared/arenas.js";
-import * as binary from "@dogfight/shared/codec/binary.js";
-import * as json from "@dogfight/shared/codec/json.js";
-import { Match } from "../src/match.js";
+import { ARENAS } from "@dogfight/shared/arenas.ts";
+import * as binary from "@dogfight/shared/codec/binary.ts";
+import * as json from "@dogfight/shared/codec/json.ts";
+import { Match } from "../src/match.ts";
 
 const TICKS = 30 * 60;
 const PLAYERS = 4;
-const quiet = { info() {}, warn() {}, error() {} };
 const room = { id: "bench" };
-const match = new Match({ room, arena: ARENAS.classic, seed: 7, log: quiet });
-match.start = () => {}; // без таймера — тікаємо вручну
+const match = new Match({ room, arena: ARENAS.classic, seed: 7 });
+match.autoStart = false; // без таймера — тікаємо вручну
 const snaps = [];
 const players = [];
 for (let i = 0; i < PLAYERS; i++) {
@@ -27,7 +26,12 @@ for (let i = 0; i < PLAYERS; i++) {
 }
 // перехоплюємо знімок до кодування: buildSnapshot викликається всередині tick()
 const p0 = match.players.get(1);
-p0.codec = { encodeSnapshot: (s) => (snaps.push(s), new ArrayBuffer(0)) };
+p0.codec = {
+  encodeSnapshot: (s) => {
+    snaps.push(s);
+    return new ArrayBuffer(0);
+  },
+};
 
 const inputSizes = { json: [], binary: [] };
 for (let t = 1; t <= TICKS; t++) {

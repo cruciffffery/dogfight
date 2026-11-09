@@ -1,19 +1,21 @@
 {
   "name": "@dogfight/client",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc --noEmit -p . && vite build",
     "preview": "vite preview",
     "determinism": "node scripts/determinism.js",
-    "this-bug": "node scripts/this-bug.js"
+    "this-bug": "node scripts/this-bug.js",
+    "typecheck": "tsc --noEmit -p ."
   },
   "devDependencies": {
     "vite": "^7.3.8"
   },
   "dependencies": {
-    "@dogfight/shared": "*"
+    "@dogfight/shared": "*",
+    "zod": "^4.6.7"
   }
 }

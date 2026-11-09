@@ -6,9 +6,9 @@
  * Метод класу — це звичайна функція на прототипі. `this` визначається НЕ місцем,
  * де метод написаний, а тим, ЯК його викликали.
  */
-import { Ship } from "@dogfight/shared/sim/entities/ship.js";
-import { Vector2 } from "@dogfight/shared/sim/vector.js";
-import { World } from "@dogfight/shared/sim/world.js";
+import { Ship } from "@dogfight/shared/sim/entities/ship.ts";
+import { Vector2 } from "@dogfight/shared/sim/vector.ts";
+import { World } from "@dogfight/shared/sim/world.ts";
 
 const world = new World({ director: () => {} });
 const ship = world.spawn(new Ship({ pos: new Vector2(100, 100) }));

@@ -14,7 +14,7 @@ import { WebSocket } from "ws";
 async function run(label, env) {
   const port = 8097;
   console.log(`\n===== ${label} =====`);
-  const server = spawn(process.execPath, ["src/index.js"], {
+  const server = spawn(process.execPath, ["src/index.ts"], {
     cwd: join(import.meta.dirname, ".."),
     env: { ...process.env, PORT: String(port), LOG_DIR: "/tmp/dogfight-crash-demo", ...env },
     stdio: ["ignore", "pipe", "pipe"],

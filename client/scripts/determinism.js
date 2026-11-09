@@ -4,8 +4,8 @@
  *
  *   npm run determinism
  */
-import { integrate } from "@dogfight/shared/sim/physics.js";
-import { Vector2 } from "@dogfight/shared/sim/vector.js";
+import { integrate } from "@dogfight/shared/sim/physics.ts";
+import { Vector2 } from "@dogfight/shared/sim/vector.ts";
 
 const STEP = 1 / 60;
 const THRUST = { turn: 0, thrust: true, brake: false };
