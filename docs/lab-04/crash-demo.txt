@@ -1,0 +1,26 @@
+
+===== БЕЗ слухача 'error' на сокеті =====
+[server] listening on http://0.0.0.0:8097 (static: /home/user/dogfight/client/dist)
+node:events:497
+      throw er; // Unhandled 'error' event
+      ^
+
+RangeError: Max payload size exceeded
+    at Receiver.haveLength (/home/user/dogfight/node_modules/ws/lib/receiver.js:442:28)
+    at Receiver.getPayloadLength64 (/home/user/dogfight/node_modules/ws/lib/receiver.js:429:10)
+    at Receiver.startLoop (/home/user/dogfight/node_modules/ws/lib/receiver.js:184:16)
+    at Receiver._write (/home/user/dogfight/node_modules/ws/lib/receiver.js:117:10)
+    at writeOrBuffer (node:internal/streams/writable:572:12)
+    at _write (node:internal/streams/writable:501:10)
+    at Writable.write (node:internal/streams/writable:510:10)
+    at Socket.socketOnData (/home/user/dogfight/node_modules/ws/lib/websocket.js:1407:35)
+--- /health після атаки: недоступний (ECONNREFUSED)
+--- з'єднання невинного гравця: CLOSED
+--- код виходу процесу: 1
+
+===== З слухачем 'error' (як у коді сервера) =====
+[server] listening on http://0.0.0.0:8097 (static: /home/user/dogfight/client/dist)
+[ws] socket error 127.0.0.1: Max payload size exceeded
+--- /health після атаки: 200 OK
+--- з'єднання невинного гравця: OPEN
+--- код виходу процесу: 0

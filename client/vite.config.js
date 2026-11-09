@@ -54,6 +54,16 @@ function failureLab() {
   };
 }
 
+const SERVER = process.env.SERVER_URL ?? "http://localhost:8080";
+
 export default defineConfig({
   plugins: [failureLab()],
+  server: {
+    // У dev клієнт і сервер на різних портах: Vite проксіює API і WebSocket на ігровий сервер
+    proxy: {
+      "/api": SERVER,
+      "/health": SERVER,
+      "/ws": { target: SERVER.replace(/^http/, "ws"), ws: true },
+    },
+  },
 });

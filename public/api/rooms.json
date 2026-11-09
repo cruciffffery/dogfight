@@ -1,5 +1,0 @@
-[
-  { "id": "alpha", "name": "Alpha — classic", "players": 0, "maxPlayers": 8, "arena": "classic" },
-  { "id": "rocks", "name": "Rockfield", "players": 0, "maxPlayers": 8, "arena": "rockfield" },
-  { "id": "duel", "name": "Duel 1v1", "players": 0, "maxPlayers": 2, "arena": "duel" }
-]

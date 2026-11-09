@@ -4,18 +4,23 @@
 
 ## Запуск
 
+Потрібен Node.js 22.9+ (`.nvmrc`). Репозиторій — npm workspaces: `client/` (Vite) і `server/` (node:http + ws).
+
 ```bash
-nvm use            # Node 22 (.nvmrc)
 npm install
-npm run dev        # http://localhost:5173
-npm run check      # Biome: lint + format
-npm run determinism  # Лаба 1, експеримент 3 без браузера
-npm run this-bug     # Лаба 2, відтворення бага з this
+npm run dev          # сервер :8080 + Vite :5173 (Vite проксіює /api і /ws на сервер)
+#   → http://localhost:5173
+npm test             # тести сервера (node:test)
+npm run check        # Biome: lint + format
+
+npm run build && npm start   # production: сервер сам віддає client/dist на :8080
 ```
 
-Керування: **←/→** або **A/D** — поворот, **↑/W** — газ, **↓/S** — гальмо, **Space** — вогонь, **F** — одиночний постріл, **R** — новий матч, **H** — показати/сховати HUD, **M** — перезапустити вимірювання.
+Корисні посилання в dev: `/?room=alpha&name=Ann` — одразу в кімнату; `/?offline` — без сервера (як у Лабі 3); `/?fail=404|timeout|json|abort` — галерея відмов завантаження.
 
-Кожна лаба — окремий тег (`lab-01` … `lab-08`): `git checkout lab-03` показує проєкт рівно на момент здачі третьої лаби.
+Керування: **←/→** або **A/D** — поворот, **↑/W** — газ, **↓/S** — гальмо, **Space** — вогонь, **F** — одиночний постріл, **Enter** — чат, **R** — новий матч, **H** — показати/сховати HUD.
+
+Кожна лаба — окремий тег (`lab-01` … `lab-08`): `git checkout lab-03` показує проєкт рівно на момент здачі третьої лаби. Шляхи у розділах лаб 1–3 вказані до переїзду в `client/` (Лаба 4).
 
 ---
 
@@ -410,3 +415,144 @@ log("end");
 ![галерея відмов](docs/lab-03/fail-404.png)
 
 Решта: [`fail-timeout.png`](docs/lab-03/fail-timeout.png), [`fail-json.png`](docs/lab-03/fail-json.png), [`fail-abort.png`](docs/lab-03/fail-abort.png).
+
+---
+
+## Лаба 4 — Node.js: EventEmitter, streams, WebSocket-сервер
+
+### Структура
+
+```
+package.json                 npm workspaces: client, server
+scripts/dev.js               кросплатформний `npm run dev` (сервер + Vite)
+client/                      усе з Лаб 1–3 + src/net/
+  src/net/connection.js      WebSocket-клієнт: диспетчеризація за type, черга, reconnect з backoff
+  src/net/chat-view.js       склад кімнати + чат поверх гри
+  vite.config.js             proxy: /api, /health → :8080, /ws → ws://:8080
+server/
+  src/index.js               createGameServer(): http + ws + кімнати + журнали; SIGINT/SIGTERM
+  src/config.js              читає й перевіряє process.env (PORT, HOST, LOG_DIR, ліміти…)
+  src/http.js                node:http: статика (MIME, захист від traversal), /api/rooms, /api/replays, /health
+  src/ws.js                  життєвий цикл сокета: join-таймаут, валідація, rate limit, heartbeat, slow client
+  src/rooms.js               Room extends EventEmitter, RoomManager
+  src/protocol.js            протокол v0: версія, валідатор, коди закриття
+  src/ratelimit.js           token bucket
+  src/log/matchlog.js        events → Readable(objectMode) → Transform(NDJSON) → файл, через pipeline
+  src/log/replay.js          async-генератор: файл → рядки → події
+  test/                      26 тестів node:test (unit + справжній сервер на випадковому порту)
+  scripts/backpressure.js    вимір RSS під час повільного завантаження 200 МБ
+  scripts/block-demo.js      затримка чату під час синхронного /api/slow
+  scripts/crash-demo.js      падіння без слухача "error" і виправлення
+```
+
+### HTTP без фреймворку
+
+- `GET /health`, `GET /api/rooms`, `POST /api/rooms` (тіло ≤ 4 КБ — і за `content-length`, і під час читання; JSON; `name` 1–32 символи; `arena` з білого списку → 201 / 400 / 413 / 422), `GET /api/replays`, `GET /api/replays/:id` (стрім), `GET /api/stats`.
+- **Статика** з `client/dist` з MIME-типами. `safeJoin()` декодує URL, нормалізує, робить `resolve` і перевіряє, що шлях лишився **всередині** кореня. `/../../etc/passwd`, `%2e%2e/`, `..%2f`, NUL-байт і биті escape-послідовності відсікаються (тести в `unit.test.js`).
+- **Конфіг** лише з `process.env` через `config.js`: невалідне значення валить процес на старті з назвою змінної. У dev — `node --env-file=.env` (файл створюється з `.env.example` при першому `npm run dev`).
+- **Graceful shutdown** на `SIGINT`/`SIGTERM`: `server.close()` (нових не приймати) → кожному сокету `{type:"shutdown"}` + `close(1001)` → закрити кімнати → **дочекатися завершення pipeline журналів** → `exit(0)`. Якщо щось зависло — примусовий вихід через 10 с.
+
+### Кімнати і WebSocket
+
+- `Room extends EventEmitter` з `players: Map`, події `join` / `leave` / `chat` / `empty` + загальна `record` для журналу. `RoomManager` створює, шукає й видаляє кімнати і прибирає тимчасову кімнату, щойно вона емітить `empty`. Три кімнати за замовчуванням позначені `persistent`.
+- **Життєвий цикл сокета** (`ws.js`): немає `join` за 5 с → `close(4000)`; кожне повідомлення проходить `parseClientMessage` (версія, тип, **лише дозволені поля**, типи й довжини; повертає результат, а не кидає) → помилка = лог + `close(4001)`; стан `{ player, room }` прив'язаний до сокета; `roster` на кожен join/leave, `chat` — усій кімнаті.
+- **Heartbeat:** `ping` кожні 15 с, `pong` скидає лічильник; два пропущені → `terminate()`.
+- **На кожному сокеті є слухач `"error"`** (див. нижче, чому це критично).
+- **Клієнт** `connection.js`: `conn.on("roster", fn)` — диспетчеризація за `type`; повідомлення, надіслані до `open`, чекають у черзі; після розриву — перепідключення через `500 · 2^n · [0.5, 1.5)` мс (максимум 10 с) і повторний `join` на кожному `open`. Фатальні коди (4001, 4003, 4004, 4006) не повторюються.
+- **Перевірка:** два вікна `/?room=alpha&name=Ann` і `/?room=alpha&name=Bob` бачать імена одне одного і чат (Playwright-скрипт + тест `two clients join one room…`).
+
+| Код  | Причина                                    |
+| ---- | ------------------------------------------ |
+| 1001 | сервер вимикається                         |
+| 1009 | кадр більший за `maxPayload` (4 КБ)        |
+| 4000 | немає `join` за 5 с                        |
+| 4001 | невалідне повідомлення                     |
+| 4002 | перевищено rate limit                      |
+| 4003 | кімната повна                              |
+| 4005 | повільний клієнт (`bufferedAmount` > 1 МБ) |
+| 4006 | немає такої кімнати                        |
+
+### Журнали матчів як потоки
+
+```
+Room "record" ──► Readable({objectMode}) ──► Transform(obj → JSON + "\n") ──► createWriteStream(LOG_DIR/<room>-<час>.ndjson)
+                                   └───────────────── pipeline() ─────────────────┘
+```
+
+- `roomRecordStream(room)` — Readable, у який події кімнати `push()`-аться; `room.close()` → `push(null)` → pipeline дописує файл і резолвить проміс (його й чекає shutdown).
+- `readReplay(file)` — `async function*` поверх `readline` і `createReadStream`: файл будь-якого розміру, у пам'яті лише поточний шматок.
+- `GET /api/replays/:id` — `pipeline(createReadStream(file), res)`. Id перевіряється регулярним виразом (жодних `/` і `..`).
+
+### Доказ backpressure: RSS сервера
+
+`node server/scripts/backpressure.js`: журнал 210 МБ, клієнт читає не швидше 20 МБ/с (аналог тротлінгу в DevTools), RSS сервера знімається з `/api/stats` кожні 200 мс; для кожного режиму — новий процес сервера.
+
+![RSS сервера під час завантаження](docs/lab-04/backpressure.png)
+
+| Режим                                                    | RSS на старті | Пік RSS    |
+| -------------------------------------------------------- | ------------- | ---------- |
+| `pipeline(createReadStream(file), res)`                  | 78 МБ         | **104 МБ** |
+| `stream.on("data", c => res.write(c))` (ігнорує `false`) | 152 МБ        | **271 МБ** |
+| `res.end(await readFile(file))`                          | 267 МБ        | **270 МБ** |
+
+З `pipeline` лінія пласка: файл читається рівно з тією швидкістю, з якою клієнт забирає дані, і в пам'яті лише кілька шматків по 64 КБ. Без backpressure диск віддає дані за долі секунди, `res.write()` повертає `false`, але читання не зупиняється — і весь файл осідає в буфері сокета. З `readFile` він у пам'яті з першої ж миті. (Антиприклади доступні лише з `ENABLE_DEBUG_ROUTES=1` через `?mode=nopipe|buffer`.)
+
+**Де ще backpressure:** журнал матчу. Кімнату не можна «поставити на паузу», тож якщо диск не встигає, записи накопичуються в буфері Readable (`readableLength`). Для подій кімнати це байти на секунду — прийнятно; для знімків стану 30 разів/с (Лаба 5) їх у журнал треба буде проріджувати.
+
+### Блокування event loop: `/api/slow`
+
+`node server/scripts/block-demo.js` ([повний вивід](docs/lab-04/block-demo.txt)): Ann шле чат кожні 50 мс і міряє, коли повідомлення повертається до неї через сервер. Через 1 с інший клієнт тричі викликає `/api/slow` (синхронний busy-wait 300 мс):
+
+```
+GET /api/slow #1 at t=1001 ms took 340 ms
+  t, ms   chat round-trip, ms
+  955       1
+ 1025       2
+ 1075     266  ███████████████████████████
+ 1126     216  ██████████████████████
+ 1175     166  █████████████████
+ 1226     116  ████████████
+ 1276      66  ███████
+ 1326      15  ██
+ 1376     269  ███████████████████████████   ← другий /api/slow
+ …
+ 1981       0
+без блокування: медіана 0.9 мс; гірший під час /api/slow: 269 мс
+```
+
+«Пилка» — це event loop, що стоїть: повідомлення Ann лежать у буфері ядра, поки синхронний цикл тримає стек. Коли цикл закінчується, накопичені повідомлення обробляються одним залпом. Перше, надіслане одразу після старту блокування, чекає ~266 мс, кожне наступне на 50 мс менше. Постраждала кімната, яка не мала до `/api/slow` жодного стосунку: потік **один на всіх**.
+
+**Фази event loop у Node (libuv):** timers (`setTimeout`/`setInterval`) → pending callbacks → idle/prepare → **poll** (I/O: сокети, файли; тут чекаємо) → **check** (`setImmediate`) → close callbacks. Між **кожним** колбеком — `process.nextTick` і мікрозадачі промісів. Синхронний код у будь-якому колбеку зупиняє всі фази для всіх з'єднань.
+
+### Чому падає сервер: `"error"` без слухача
+
+`node server/scripts/crash-demo.js` ([повний вивід](docs/lab-04/crash-demo.txt)): «нападник» шле кадр 64 КБ (більше `maxPayload` = 4 КБ), «гравець» мирно сидить у сусідній кімнаті.
+
+```
+===== БЕЗ слухача 'error' на сокеті =====
+node:events:497
+      throw er; // Unhandled 'error' event
+RangeError: Max payload size exceeded
+    at Receiver.haveLength (…/ws/lib/receiver.js:442:28)
+--- /health після атаки: недоступний (ECONNREFUSED)
+--- з'єднання невинного гравця: CLOSED
+--- код виходу процесу: 1
+
+===== З слухачем 'error' (як у коді сервера) =====
+[ws] socket error 127.0.0.1: Max payload size exceeded
+--- /health після атаки: 200 OK
+--- з'єднання невинного гравця: OPEN
+```
+
+`EventEmitter.emit("error")` без жодного слухача **кидає** помилку. Вона відбувається в колбеку I/O, тож її нікому перехопити, і процес завершується з кодом 1, разом з усіма кімнатами. Виправлення — `socket.on("error", …)` на **кожному** сокеті (у `ws.js`). Рівноцінна пастка для промісів — необроблене відхилення: з Node 15 `--unhandled-rejections=throw` за замовчуванням так само завершує процес. Тому на сервері кожен `async`-обробник загорнутий у `try/catch` (`http.js`), а проміси журналів мають `.catch`.
+
+### Захист від зловживань
+
+| Механізм         | Де                         | Значення                                                                                                             |
+| ---------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Token bucket     | `ratelimit.js`, `ws.js`    | 30 повідомлень/с, сплеск до 60 → `close(4002)`                                                                       |
+| `maxPayload`     | `new WebSocketServer(...)` | 4 КБ → `close(1009)`                                                                                                 |
+| Ліміти           | `RoomManager`              | ≤ 50 кімнат (`POST` → 409), ≤ 8 гравців у кімнаті → `close(4003)`                                                    |
+| Повільний клієнт | `send()` у `ws.js`         | `bufferedAmount` > 256 КБ — некритичне (чат) відкидається; `roster` / `welcome` ідуть завжди; > 1 МБ → `close(4005)` |
+
+Усе це покрито тестами (`server/test/server.test.js`): flood → 4002, завеликий кадр → 1009, «мовчазний» клієнт (`autoPong: false`) → `terminate()`, після всіх атак `/health` → 200.

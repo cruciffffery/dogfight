@@ -76,6 +76,7 @@ export class Lobby extends EventTarget {
       );
       this.leave();
       this.#emit("join", { room, arena, name });
+      return room;
     } catch (err) {
       if (!controller.signal.aborted) this.#emit("error", err);
     }
@@ -91,6 +92,20 @@ export class Lobby extends EventTarget {
       this.#active = false;
       this.#emit("left");
     }
+  }
+
+  /** Створити кімнату на сервері (POST /api/rooms) і оновити список. */
+  async createRoom(name, arena = "classic") {
+    const response = await fetch(this.roomsUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, arena }),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+    await this.refresh();
+    return body;
   }
 
   /** Подію → проміс: зручно для async-коду, що «чекає вибору кімнати». */

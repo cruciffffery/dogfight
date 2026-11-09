@@ -14,7 +14,10 @@ export function createInput(target = window) {
   const pressed = new Set();
   const listeners = new Map(); // code → Set<fn>
 
+  const isTyping = (e) => e.target instanceof HTMLElement && e.target.matches("input, textarea");
+
   function onKeyDown(e) {
+    if (isTyping(e)) return; // друкують у чаті / лобі — це не керування кораблем
     if (GAME_KEYS.has(e.code)) e.preventDefault();
     if (!e.repeat && !down.has(e.code)) {
       pressed.add(e.code);

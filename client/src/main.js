@@ -7,6 +7,8 @@ import { readExperiment } from "./experiments.js";
 import { startGame } from "./game.js";
 import { Lobby } from "./lobby/lobby.js";
 import { mountLobbyView } from "./lobby/view.js";
+import { mountRoomUi } from "./net/chat-view.js";
+import { Connection } from "./net/connection.js";
 import { setupCanvas } from "./render/canvas.js";
 import { setSprites } from "./render/draw.js";
 import { createLoadingScreen } from "./render/loading.js";
@@ -114,22 +116,68 @@ async function boot() {
   if (!params.has("fast")) await new Promise((r) => setTimeout(r, 600));
   screen.stop();
 
+  // ---- лобі ----
+  const lobby = new Lobby({ roomsUrl: "/api/rooms" });
+  window.__lab.lobby = lobby;
   let join;
-  if (params.has("room")) {
-    // Пряме посилання на кімнату (зручно для тестів і захисту)
-    const arena = await loadJson(`/assets/arenas/${params.get("room")}.json`);
-    join = { arena, name: params.get("name") ?? "you" };
+  if (params.has("offline")) {
+    // Без сервера (як у Лабі 3): ?offline&arena=classic
+    const arena = await loadJson(`/assets/arenas/${params.get("arena") ?? "classic"}.json`);
+    join = { arena, name: params.get("name") ?? "you", room: null };
+  } else if (params.has("room")) {
+    // Пряме посилання на кімнату: ?room=alpha&name=Ann (зручно для тестів і захисту)
+    const joined = lobby.waitForJoin();
+    await lobby.refresh();
+    await lobby.join(params.get("room"), params.get("name") ?? "pilot");
+    join = await joined;
   } else {
-    const lobby = new Lobby({ roomsUrl: params.get("rooms") ?? "/api/rooms.json" });
-    window.__lab.lobby = lobby;
     mountLobbyView(lobby);
     lobby.start();
     join = await lobby.waitForJoin();
   }
 
+  // ---- з'єднання з кімнатою (Лаба 4): склад і чат; симуляція поки що локальна ----
+  if (join.room) {
+    const conn = new Connection(Connection.defaultUrl());
+    window.__lab.conn = conn;
+    // join відправляється на КОЖНЕ відкриття — і після автоматичного перепідключення
+    conn.addEventListener("open", () =>
+      conn.send({ type: "join", room: join.room.id, name: join.name }),
+    );
+    // UI підписується ДО підключення — щоб не пропустити перший roster
+    const ui = mountRoomUi(conn, { roomName: join.room.name, myId: null });
+    conn.on("welcome", (w) => ui.setMyId(w.playerId));
+    conn.connect();
+    const welcome = await waitForWelcome(conn).catch((err) => {
+      ui.destroy();
+      throw err;
+    });
+    window.__lab.playerId = welcome.playerId;
+  }
+
   const game = startGame({ view, arenaConfig: join.arena, name: join.name, config });
   Object.assign(window.__lab, game);
   canvas.focus();
+}
+
+/** welcome або фатальне закриття (кімната повна, немає кімнати) — що станеться першим. */
+function waitForWelcome(conn) {
+  return new Promise((resolve, reject) => {
+    const off = conn.on("welcome", (msg) => {
+      cleanup();
+      resolve(msg);
+    });
+    const onClose = (e) => {
+      if (e.detail.willRetry) return;
+      cleanup();
+      reject(new Error(`сервер закрив з'єднання: ${e.detail.reason || e.detail.code}`));
+    };
+    const cleanup = () => {
+      off();
+      conn.removeEventListener("close", onClose);
+    };
+    conn.addEventListener("close", onClose);
+  });
 }
 
 boot().catch((err) => {

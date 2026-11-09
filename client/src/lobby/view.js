@@ -15,6 +15,10 @@ const STYLE = `
 .lobby li button:disabled { opacity: .5; cursor: not-allowed; }
 .lobby .status { min-height: 1.4em; font-size: 13px; color: #8fa3cc; }
 .lobby .status.err { color: #ff8a8a; }
+.lobby form.create { display: flex; gap: 8px; margin-bottom: 10px; }
+.lobby form.create input { margin: 0; flex: 1; }
+.lobby form.create select, .lobby form.create button { padding: 8px 10px; border-radius: 8px; border: 1px solid #2c3d6e; background: #111b33; color: #e8edf7; font: inherit; }
+.lobby form.create button { cursor: pointer; }
 .lobby .retry { margin-left: 8px; padding: 3px 10px; border-radius: 6px; border: 1px solid #ff8a8a; background: none; color: #ff8a8a; font: inherit; cursor: pointer; }
 `;
 
@@ -29,6 +33,11 @@ export function mountLobbyView(lobby, root = document.body) {
       <p>Обери ім'я та кімнату.</p>
       <label>Ім'я пілота <input name="name" maxlength="16" autocomplete="nickname"></label>
       <ul class="rooms" aria-live="polite"></ul>
+      <form class="create">
+        <input name="room" maxlength="32" placeholder="Нова кімната" required>
+        <select name="arena"><option>classic</option><option>rockfield</option><option>duel</option></select>
+        <button>Створити</button>
+      </form>
       <div class="status"></div>
     </div>`;
   root.append(style, el);
@@ -86,6 +95,19 @@ export function mountLobbyView(lobby, root = document.body) {
     el.remove();
     style.remove();
   }
+
+  const form = el.querySelector("form.create");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = new FormData(form);
+    try {
+      const room = await lobby.createRoom(String(data.get("room")), String(data.get("arena")));
+      setStatus(`Кімнату «${room.name}» створено`);
+      form.reset();
+    } catch (err) {
+      setStatus(`Не вдалося створити: ${err.message}`, true);
+    }
+  });
 
   nameInput.focus();
   return { destroy, setStatus };

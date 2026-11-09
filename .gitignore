@@ -2,3 +2,9 @@ node_modules
 dist
 .DS_Store
 *.log
+.env
+server/logs
+*.cpuprofile
+test-results
+playwright-report
+coverage

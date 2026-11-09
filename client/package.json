@@ -1,0 +1,16 @@
+{
+  "name": "@dogfight/client",
+  "private": true,
+  "version": "0.4.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "determinism": "node scripts/determinism.js",
+    "this-bug": "node scripts/this-bug.js"
+  },
+  "devDependencies": {
+    "vite": "^7.3.8"
+  }
+}
