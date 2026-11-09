@@ -19,10 +19,18 @@ export class Ship extends Entity {
   // тож ніхто не напише ship.hp = 9999 з консолі чи іншого модуля
   #hp = SHIP_RULES.maxHp;
 
-  constructor({ pos, angle = -Math.PI / 2, name = "pilot", color = "#e8edf7", ai = null }) {
+  constructor({
+    pos,
+    angle = -Math.PI / 2,
+    name = "pilot",
+    skin = "blue",
+    color = "#7fa2ff",
+    ai = null,
+  }) {
     super({ kind: "ship", pos, angle, radius: SHIP.radius });
     this.name = name;
-    this.color = color;
+    this.skin = skin; // кадр спрайта: blue | red | green | gold
+    this.color = color; // колір вибуху
     this.thrust = false;
     this.command = NO_INPUT;
     this.cooldown = 0;
@@ -75,6 +83,7 @@ export class Ship extends Entity {
       withHoming(bullet, { targetKind: "ship", turnRate: 4.5, range: 420, ignoreId: this.id });
     }
     world.spawn(bullet);
+    world.emit("fired", { ownerId: this.id, bulletId: bullet.id, pos: bullet.pos });
     return bullet;
   }
 

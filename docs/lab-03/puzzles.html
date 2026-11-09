@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Ordering puzzles</title>
+<pre id="out" style="font: 14px monospace">running…</pre>
+<script type="module">
+  import { runAll } from "./puzzles.js";
+
+  const results = await runAll();
+  document.getElementById("out").textContent = results.map((r) => `${r.name}\n  ${r.output}`).join("\n\n");
+  window.__results = results;
+</script>

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "items": [
+    { "id": "sheet", "type": "image", "url": "/assets/sprites/sheet.png" },
+    { "id": "atlas", "type": "json", "url": "/assets/sprites/atlas.json" },
+    { "id": "sfx.shoot", "type": "audio", "url": "/assets/sounds/shoot.wav" },
+    { "id": "sfx.hit", "type": "audio", "url": "/assets/sounds/hit.wav" },
+    { "id": "sfx.explosion", "type": "audio", "url": "/assets/sounds/explosion.wav" },
+    { "id": "sfx.pickup", "type": "audio", "url": "/assets/sounds/pickup.wav" },
+    { "id": "sfx.ambient", "type": "audio", "url": "/assets/sounds/ambient.wav", "optional": true },
+    { "id": "decor.nebula", "type": "image", "url": "/assets/sprites/nebula.png", "optional": true }
+  ]
+}

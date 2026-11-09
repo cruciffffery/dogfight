@@ -6,7 +6,8 @@
  * Поверх цього рахуємо масштаб «світ → екран», щоб арена фіксованого розміру
  * вписувалась у будь-яке вікно з полями (letterbox).
  */
-export function setupCanvas(canvas, arena) {
+export function setupCanvas(canvas, initialArena) {
+  let arena = initialArena;
   const ctx = canvas.getContext("2d", { alpha: false });
 
   const view = {
@@ -52,6 +53,12 @@ export function setupCanvas(canvas, arena) {
   new ResizeObserver(resize).observe(canvas);
   watchDpr();
   resize();
+
+  /** Кімнати мають різні розміри арени — масштаб перераховується. */
+  view.setArena = (next) => {
+    arena = next;
+    resize();
+  };
 
   return view;
 }

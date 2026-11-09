@@ -1,0 +1,8 @@
+{
+  "name": "Rockfield",
+  "width": 1920,
+  "height": 1080,
+  "asteroids": 12,
+  "pickupEvery": 4,
+  "seed": 77
+}

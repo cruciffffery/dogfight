@@ -12,8 +12,12 @@ import { Vector2 } from "./vector.js";
  *
  * Чому Map, а не {}: ключі-числа без перетворення на рядки, гарантований порядок вставки
  * (детермінізм!), O(1) delete без «дірок», .size, і жодних конфліктів з Object.prototype.
+ *
+ * Світ — це ще й EventTarget (Лаба 3): він диспетчеризує CustomEvent "fired", "hit",
+ * "exploded", "picked", "scored". Аудіо й HUD підписуються на них, а симуляція нічого
+ * не знає ні про звук, ні про екран. EventTarget і CustomEvent є і в браузері, і в Node.
  */
-export class World {
+export class World extends EventTarget {
   #entities = new Map();
   #despawnQueue = [];
   #events = [];
@@ -23,8 +27,11 @@ export class World {
     seed = 1,
     collide = naiveCollisions,
     director = defaultDirector,
+    rules = {},
   } = {}) {
+    super();
     this.arena = arena;
+    this.rules = { asteroids: 5, pickupEvery: 6, ...rules };
     this.rng = createRng(seed);
     this.collide = collide; // система колізій підставляється ззовні
     this.director = director;
@@ -69,14 +76,20 @@ export class World {
     }
   }
 
-  addScore(ownerId, points) {
+  addScore(ownerId, points, pos = Vector2.ZERO) {
     if (ownerId == null) return;
-    this.scores.set(ownerId, (this.scores.get(ownerId) ?? 0) + points);
+    const total = (this.scores.get(ownerId) ?? 0) + points;
+    this.scores.set(ownerId, total);
+    this.emit("scored", { id: ownerId, points, total, pos });
   }
 
-  /** Подія симуляції. У Лабі 3 цю чергу слухатиме EventTarget-шина. */
+  /**
+   * Подія симуляції: синхронно диспетчеризується слухачам (аудіо, HUD) і
+   * кладеться в чергу — її забере мережевий шар (Лаба 5).
+   */
   emit(type, detail) {
     this.#events.push({ type, detail, tick: this.tick });
+    this.dispatchEvent(new CustomEvent(type, { detail }));
   }
 
   /** Забрати події, що накопичились (і очистити чергу). */
@@ -149,10 +162,10 @@ export class World {
  */
 export function defaultDirector(world, _dt) {
   const asteroids = [...world.ofKind("asteroid")].length;
-  if (asteroids < 5) spawnAsteroid(world);
+  if (asteroids < world.rules.asteroids) spawnAsteroid(world);
 
   const pickups = [...world.ofKind("pickup")].length;
-  if (pickups < 2 && world.tick % (60 * 6) === 0) {
+  if (pickups < 2 && world.tick % Math.round(60 * world.rules.pickupEvery) === 0) {
     world.spawn(
       new Pickup({
         pos: world.findSafeSpot(80),

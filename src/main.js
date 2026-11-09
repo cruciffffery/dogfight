@@ -1,158 +1,141 @@
-import { busyWait, createRecorder, readExperiment } from "./experiments.js";
-import { createInput, readCommand } from "./input.js";
-import { createLoop } from "./loop.js";
+/**
+ * Точка входу: завантаження ресурсів → лобі → гра. Увесь «сценарій» — один async-ланцюжок.
+ */
+import { loadAll, loadJson, withRetry } from "./assets/loader.js";
+import { getAudioContext, registerBuffers, unlockOnGesture } from "./audio.js";
+import { readExperiment } from "./experiments.js";
+import { startGame } from "./game.js";
+import { Lobby } from "./lobby/lobby.js";
+import { mountLobbyView } from "./lobby/view.js";
 import { setupCanvas } from "./render/canvas.js";
-import {
-  createStarfield,
-  drawBackground,
-  drawBanner,
-  drawHud,
-  drawScore,
-  drawWorld,
-} from "./render/draw.js";
-import { dummyPilot } from "./sim/ai.js";
-import { createArena, torusDelta } from "./sim/arena.js";
-import { Ship } from "./sim/entities/ship.js";
-import { Vector2 } from "./sim/vector.js";
-import { spawnAsteroid, World } from "./sim/world.js";
+import { setSprites } from "./render/draw.js";
+import { createLoadingScreen } from "./render/loading.js";
+import { createSprites } from "./render/sprites.js";
+import { createArena } from "./sim/arena.js";
 
-const STEP = 1 / 60;
 const config = readExperiment();
-
+const params = new URLSearchParams(location.search);
 const canvas = document.getElementById("game");
-const arena = createArena();
-const view = setupCanvas(canvas, arena);
-const stars = createStarfield(arena);
-const input = createInput(window);
-const recorder = createRecorder({ seconds: config.recordSeconds });
+const view = setupCanvas(canvas, createArena());
+window.__lab = { config };
 
-// ---- Світ ----
-let world;
-let player;
-let dummy;
-
-function newMatch() {
-  world = new World({ arena, seed: 2026 });
-  player = world.spawn(
-    new Ship({ pos: new Vector2(arena.width * 0.3, arena.height / 2), name: "you" }),
-  );
-  dummy = world.spawn(
-    new Ship({
-      pos: new Vector2(arena.width * 0.75, arena.height / 2),
-      angle: Math.PI,
-      name: "dummy",
-      color: "#ff8a8a",
-      ai: dummyPilot,
-    }),
-  );
-  for (let i = 0; i < 5; i++) spawnAsteroid(world, { hunter: i === 0 });
-  probe.distance = Vector2.ZERO;
-  probe.logged = null;
+/**
+ * Навмисні збої для «галереї відмов» (README, Лаба 3):
+ *   ?fail=404     — обов'язковий спрайт-аркуш не існує
+ *   ?fail=timeout — обов'язковий ресурс «висить» (сервер не відповідає)
+ *   ?fail=abort   — завантаження скасовується через 400 мс (так само, як Esc)
+ *   ?fail=json    — атлас спрайтів — зіпсований JSON
+ */
+function injectFailures(manifest, mode) {
+  const items = manifest.items.map((i) => ({ ...i }));
+  const byId = (id) => items.find((i) => i.id === id);
+  if (mode === "404") byId("sheet").url = "/assets/sprites/missing-sheet.png";
+  if (mode === "json") byId("atlas").url = "/__test/corrupt.json";
+  if (mode === "timeout") items.push({ id: "map.hang", type: "json", url: "/__test/hang" });
+  return { ...manifest, items };
 }
 
-const probe = { distance: Vector2.ZERO, logged: null };
-let showHud = true;
-const inputs = new Map();
-const AUTOPILOT = Object.freeze({ turn: 0, thrust: true, brake: false, fire: false });
+async function loadAssets(screen) {
+  const audioCtx = getAudioContext();
+  let manifest = await withRetry(() => loadJson("/assets/manifest.json"), { attempts: 3 });
+  manifest = injectFailures(manifest, params.get("fail"));
 
-// ---- Демонстрація бага з `this` (див. README, розділ «Баг з this») ----
-// БАГ:     input.onPress("KeyF", player.fire);
-//          → fire викликається як fn(e): this === undefined → TypeError: reading 'destroyed'
-//          (а навіть якби this був, у fire прийшов би KeyboardEvent замість world)
-// ВИПРАВЛЕННЯ (обране): стрілкова функція фіксує, на кому і з чим викликати метод
-input.onPress("KeyF", () => player.fire(world));
+  for (;;) {
+    const controller = new AbortController();
+    const onKey = (e) => {
+      if (e.key === "Escape") controller.abort(new DOMException("user pressed Esc", "AbortError"));
+    };
+    window.addEventListener("keydown", onKey);
+    const autoAbort =
+      params.get("fail") === "abort"
+        ? setTimeout(() => controller.abort(new DOMException("test abort", "AbortError")), 400)
+        : 0;
 
-function simulate(dt) {
-  if (input.justPressed("KeyR")) newMatch();
-  if (input.justPressed("KeyH")) showHud = !showHud;
-  if (input.justPressed("KeyM")) recorder.restart();
-
-  inputs.set(player.id, config.autopilot ? AUTOPILOT : readCommand(input));
-  world.step(dt, inputs);
-  world.drainEvents(); // у Лабі 3 їх слухатимуть аудіо та HUD
-
-  probe.distance = probe.distance.add(torusDelta(player.prevPos, player.pos, arena));
-  input.endStep();
-}
-
-function logProbe(stats) {
-  if (!config.autopilot || probe.logged || world.time < 5 - 1e-9) return;
-  probe.logged = {
-    mode: `${stats.scheduler} · ${stats.timestep}`,
-    simTime: +world.time.toFixed(4),
-    steps: world.tick,
-    dx: +probe.distance.x.toFixed(3),
-    dy: +probe.distance.y.toFixed(3),
-  };
-  console.log("[lab] переміщення після 5 с газу:", probe.logged);
-}
-
-let renderedFrames = 0;
-
-function render(alpha, stats) {
-  renderedFrames += 1;
-  recorder.onFrame(stats);
-  logProbe(stats);
-
-  if (config.blockEvery && renderedFrames % config.blockEvery === 0) busyWait(config.blockMs);
-
-  const now = performance.now();
-  drawBackground(view, arena, stars);
-  drawWorld(view, world, alpha, now);
-
-  const you = world.scores.get(player.id) ?? 0;
-  const them = world.scores.get(dummy.id) ?? 0;
-  drawScore(view, `YOU ${you}   ·   DUMMY ${them}`);
-
-  if (config.exp !== "none") {
-    drawBanner(view, `EXPERIMENT: ${config.exp}${config.autopilot ? " + autopilot" : ""}`);
-  }
-
-  if (showHud) {
-    const fx = Object.entries(player.effects)
-      .filter(([, t]) => t > 0)
-      .map(([k, t]) => `${k} ${t.toFixed(1)}s`)
-      .join("  ");
-    const lines = [
-      { text: `hp ${player.hp}  entities ${world.size}`, color: "#cfe0ff" },
-      { text: fx ? `effects: ${fx}` : "effects: —" },
-      { text: "←/→ поворот, ↑ газ, ↓ гальмо, Space вогонь" },
-      { text: "F — одиночний постріл, R — новий матч, H — HUD" },
-    ];
-    const r = recorder.result;
-    if (r) {
-      lines.push({ text: `rec ${r.seconds}s: ${r.fps} fps, p99 ${r.p99Ms} ms`, color: "#39d98a" });
-    }
-    if (probe.logged) {
-      lines.push({
-        text: `5 с газу: dx=${probe.logged.dx}, dy=${probe.logged.dy}`,
-        color: "#ffb020",
+    Object.assign(screen.state, { done: 0, total: manifest.items.length, error: null });
+    const t0 = performance.now();
+    try {
+      const result = await loadAll(manifest, {
+        audioCtx,
+        signal: controller.signal,
+        timeoutMs: params.get("fail") === "timeout" ? 1500 : 8000,
+        sequential: params.has("seq"),
+        onProgress: ({ done, total, item, ok, error }) => {
+          Object.assign(screen.state, { done, total, current: item.id });
+          if (!ok)
+            screen.log(
+              `✘ ${item.id}: ${error.message}${item.optional && error.name !== "AbortError" ? " (необов'язковий — пропускаю)" : ""}`,
+            );
+        },
+        onRetry: ({ item, attempt, delay, error }) =>
+          screen.log(
+            `↻ ${item.id}: спроба ${attempt} невдала (${error.name}), повтор через ${Math.round(delay)} мс`,
+          ),
       });
+      const ms = performance.now() - t0;
+      window.__lab.loadMs = ms;
+      screen.log(
+        `✔ ${manifest.items.length} ресурсів за ${ms.toFixed(0)} мс (${params.has("seq") ? "послідовно" : "Promise.all"})`,
+      );
+      return result;
+    } catch (err) {
+      const aborted = controller.signal.aborted;
+      screen.state.error = aborted
+        ? "Завантаження скасовано"
+        : `Не вдалося завантажити «${err.assetId ?? "manifest"}»: ${err.name === "TimeoutError" ? "таймаут" : err.message}`;
+      screen.log(screen.state.error);
+      const choice = await screen.ask([
+        { id: "retry", label: aborted ? "Почати знову" : "Повторити" },
+        ...(aborted ? [] : [{ id: "skip", label: "Продовжити без нього" }]),
+      ]);
+      if (choice === "skip") {
+        // Деградація: позначаємо ресурс необов'язковим. Без аркуша/атласу гра малює вектори.
+        const failed = err.assetId;
+        manifest = {
+          ...manifest,
+          items: manifest.items.map((i) => (i.id === failed ? { ...i, optional: true } : i)),
+        };
+      }
+    } finally {
+      window.removeEventListener("keydown", onKey);
+      clearTimeout(autoAbort);
     }
-    drawHud(view, stats, { targetSteps: 1 / STEP, lines });
   }
 }
 
-newMatch();
-const loop = createLoop({
-  step: STEP,
-  simulate,
-  render,
-  scheduler: config.scheduler,
-  timestep: config.timestep,
-});
-loop.start();
-canvas.focus();
+async function boot() {
+  unlockOnGesture();
+  const screen = createLoadingScreen(view);
+  screen.start();
+  const { assets, failures } = await loadAssets(screen);
+  window.__lab.failures = failures.map((f) => `${f.id}: ${f.error.message}`);
+  registerBuffers(assets);
+  setSprites(createSprites(assets.get("sheet"), assets.get("atlas")));
+  // Невелика пауза, щоб було видно 100% і журнал (у тестах можна пропустити)
+  if (!params.has("fast")) await new Promise((r) => setTimeout(r, 600));
+  screen.stop();
 
-window.__lab = {
-  loop,
-  recorder,
-  probe,
-  config,
-  get world() {
-    return world;
-  },
-  get player() {
-    return player;
-  },
-};
+  let join;
+  if (params.has("room")) {
+    // Пряме посилання на кімнату (зручно для тестів і захисту)
+    const arena = await loadJson(`/assets/arenas/${params.get("room")}.json`);
+    join = { arena, name: params.get("name") ?? "you" };
+  } else {
+    const lobby = new Lobby({ roomsUrl: params.get("rooms") ?? "/api/rooms.json" });
+    window.__lab.lobby = lobby;
+    mountLobbyView(lobby);
+    lobby.start();
+    join = await lobby.waitForJoin();
+  }
+
+  const game = startGame({ view, arenaConfig: join.arena, name: join.name, config });
+  Object.assign(window.__lab, game);
+  canvas.focus();
+}
+
+boot().catch((err) => {
+  console.error(err);
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<p style="position:fixed;inset:auto 0 40% 0;text-align:center;color:#ff8a8a;font:16px monospace">Помилка запуску: ${String(err.message).replace(/</g, "&lt;")}</p>`,
+  );
+});

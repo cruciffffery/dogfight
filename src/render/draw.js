@@ -22,6 +22,13 @@ const COLORS = {
 };
 
 export const PICKUP_COLORS = { shield: "#2bd4ff", rapid: "#ffb020", homing: "#d26bff" };
+export const SKIN_COLORS = { blue: "#e8edf7", red: "#ff9a9a", green: "#9af0c0", gold: "#ffe08a" };
+
+/** Спрайти (Лаба 3). Якщо аркуш не завантажився — малюємо векторні фігури з Лаби 1–2. */
+let sprites = null;
+export function setSprites(s) {
+  sprites = s;
+}
 
 /** Детермінований ГПВЧ — зоряне небо й форми астероїдів однакові при кожному запуску. */
 function mulberry32(seed) {
@@ -96,6 +103,10 @@ export function lerpPos(prev, cur, t, arena) {
 // ---------- форми в локальних координатах (ніс дивиться вправо) ----------
 
 function shipShape(ctx, ship, time) {
+  if (sprites) {
+    const name = `ship-${ship.skin ?? "blue"}${ship.thrust ? "-thrust" : ""}`;
+    if (sprites.draw(ctx, name, sprites.naturalSize(name))) return;
+  }
   if (ship.thrust) {
     const flicker = 0.75 + 0.25 * Math.sin(time * 0.045) + 0.15 * Math.sin(time * 0.13);
     const len = 22 * flicker;
@@ -114,7 +125,7 @@ function shipShape(ctx, ship, time) {
     ctx.closePath();
     ctx.fill();
   }
-  ctx.fillStyle = ship.color ?? COLORS.hull;
+  ctx.fillStyle = SKIN_COLORS[ship.skin] ?? COLORS.hull;
   ctx.strokeStyle = COLORS.hullEdge;
   ctx.lineWidth = 2;
   ctx.lineJoin = "round";
@@ -151,6 +162,10 @@ function rockPolygon(seed, radius) {
 }
 
 function asteroidShape(ctx, a) {
+  if (sprites && !a.homing) {
+    // кадр намальовано з радіусом 44 px у клітинці 96 px
+    if (sprites.draw(ctx, `asteroid-${a.shapeSeed % 4}`, (96 * a.radius) / 44)) return;
+  }
   const pts = rockPolygon(a.shapeSeed, a.radius);
   ctx.fillStyle = COLORS.rock;
   ctx.strokeStyle = a.homing ? PICKUP_COLORS.homing : COLORS.rockEdge;
@@ -164,6 +179,7 @@ function asteroidShape(ctx, a) {
 }
 
 function bulletShape(ctx, b) {
+  if (sprites?.draw(ctx, b.homing ? "bullet-homing" : "bullet", 48)) return;
   ctx.fillStyle = b.homing ? PICKUP_COLORS.homing : COLORS.bullet;
   ctx.fillRect(-7, -1.5, 12, 3);
 }
@@ -171,6 +187,7 @@ function bulletShape(ctx, b) {
 function pickupShape(ctx, p) {
   const pulse = 1 + 0.12 * Math.sin(p.age * 6);
   ctx.scale(pulse, pulse);
+  if (sprites?.draw(ctx, `pickup-${p.type}`, 52)) return;
   ctx.strokeStyle = PICKUP_COLORS[p.type];
   ctx.lineWidth = 3;
   ctx.beginPath();

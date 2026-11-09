@@ -40,7 +40,7 @@ const handlers = {
     world.emit("hit", { targetId: ship.id, byId: bullet.ownerId, pos: bullet.pos });
     if (killed) {
       explode(world, ship.pos, ship.color);
-      world.addScore(bullet.ownerId, SCORE.ship);
+      world.addScore(bullet.ownerId, SCORE.ship, ship.pos);
       world.emit("exploded", { id: ship.id, kind: "ship", byId: bullet.ownerId, pos: ship.pos });
     }
   },
@@ -52,7 +52,7 @@ const handlers = {
     if (asteroid.hp > 0) return;
     world.despawn(asteroid.id);
     explode(world, asteroid.pos, "#b9a68a");
-    world.addScore(bullet.ownerId, SCORE.asteroid);
+    world.addScore(bullet.ownerId, SCORE.asteroid, asteroid.pos);
     world.emit("exploded", {
       id: asteroid.id,
       kind: "asteroid",
