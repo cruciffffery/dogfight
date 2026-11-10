@@ -16,6 +16,7 @@ import {
   type ServerMessageType,
 } from "@dogfight/shared/protocol.ts";
 import { assertNever } from "@dogfight/shared/types.ts";
+import { measure } from "../perf.ts";
 
 const FATAL_CODES = new Set([4001, 4003, 4004, 4006]);
 
@@ -121,7 +122,11 @@ export class Connection extends Bus<ConnectionEvents> {
     if (data instanceof ArrayBuffer) {
       this.bytes.in += data.byteLength;
       try {
-        return { v: PROTOCOL_VERSION, type: "snapshot", ...decodeSnapshot(data) };
+        return {
+          v: PROTOCOL_VERSION,
+          type: "snapshot",
+          ...measure("decode", () => decodeSnapshot(data)),
+        };
       } catch (err: unknown) {
         console.warn("[net] bad binary frame:", err instanceof Error ? err.message : err);
         return null;

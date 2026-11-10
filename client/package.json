@@ -1,7 +1,7 @@
 {
   "name": "@dogfight/client",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "determinism": "node scripts/determinism.js",
     "this-bug": "node scripts/this-bug.js",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
   },
   "devDependencies": {
     "vite": "^7.3.8"

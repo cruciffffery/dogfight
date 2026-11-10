@@ -1,0 +1,153 @@
+{
+  "label": "after",
+  "seconds": 30,
+  "throttle": 1,
+  "env": {
+    "chromium": "141 headless",
+    "node": "v22.22.0",
+    "cpu": "container"
+  },
+  "entitiesInLastSnapshot": 27,
+  "frames": 1875,
+  "frameIntervalMs": {
+    "p50": 16.7,
+    "p95": 16.7,
+    "p99": 16.8,
+    "max": 16.8
+  },
+  "longFrames": 0,
+  "measures": {
+    "decode": {
+      "count": 939,
+      "p50": 0,
+      "p95": 0.1,
+      "p99": 0.2,
+      "max": 0.4,
+      "total": 35.3
+    },
+    "reconcile": {
+      "count": 756,
+      "p50": 0,
+      "p95": 0.1,
+      "p99": 0.1,
+      "max": 0.2,
+      "total": 9.6
+    },
+    "render": {
+      "count": 1876,
+      "p50": 0.4,
+      "p95": 0.8,
+      "p99": 2.3,
+      "max": 6.7,
+      "total": 816.7
+    },
+    "simulate": {
+      "count": 937,
+      "p50": 0.1,
+      "p95": 0.3,
+      "p99": 0.6,
+      "max": 3.6,
+      "total": 110.6
+    }
+  },
+  "gc": {
+    "minor": {
+      "count": 14,
+      "totalMs": 21
+    },
+    "major": {
+      "count": 10,
+      "totalMs": 32.7
+    }
+  },
+  "topSelfTime": [
+    {
+      "fn": "(garbage collector) :0",
+      "ms": 79,
+      "pct": 9.8
+    },
+    {
+      "fn": "fillText :0",
+      "ms": 66.1,
+      "pct": 8.2
+    },
+    {
+      "fn": "requestAnimationFrame :0",
+      "ms": 61.1,
+      "pct": 7.6
+    },
+    {
+      "fn": "drawImage :0",
+      "ms": 60.1,
+      "pct": 7.4
+    },
+    {
+      "fn": "PerformanceObserver.observe.entryTypes main-C-LExqYs.js:7915",
+      "ms": 51.2,
+      "pct": 6.3
+    },
+    {
+      "fn": "save :0",
+      "ms": 29,
+      "pct": 3.6
+    },
+    {
+      "fn": "draw main-C-LExqYs.js:6755",
+      "ms": 28.1,
+      "pct": 3.5
+    },
+    {
+      "fn": "fillRect :0",
+      "ms": 20.5,
+      "pct": 2.5
+    }
+  ],
+  "topAllocators": [
+    {
+      "fn": "next :0",
+      "kb": 8239,
+      "pct": 17.4
+    },
+    {
+      "fn": "drawWorld main-C-LExqYs.js:7188",
+      "kb": 6990,
+      "pct": 14.8
+    },
+    {
+      "fn": "decodeSnapshot main-C-LExqYs.js:7804",
+      "kb": 5572,
+      "pct": 11.8
+    },
+    {
+      "fn": "drawHud main-C-LExqYs.js:7233",
+      "kb": 3249,
+      "pct": 6.9
+    },
+    {
+      "fn": "lerpPos main-C-LExqYs.js:7042",
+      "kb": 2420,
+      "pct": 5.1
+    },
+    {
+      "fn": "forEachInterpolated main-C-LExqYs.js:8170",
+      "kb": 2011,
+      "pct": 4.2
+    },
+    {
+      "fn": "draw main-C-LExqYs.js:6755",
+      "kb": 1982,
+      "pct": 4.2
+    },
+    {
+      "fn": "asteroidShape main-C-LExqYs.js:7110",
+      "kb": 1444,
+      "pct": 3
+    }
+  ],
+  "sampledAllocKB": 47357,
+  "busyMs": 807,
+  "serverTickMs": {
+    "p50": 0.347,
+    "p99": 0.884
+  }
+}

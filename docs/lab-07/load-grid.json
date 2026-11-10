@@ -1,0 +1,86 @@
+{
+  "collisions": "grid",
+  "seconds": 12,
+  "node": "v22.22.0",
+  "cpus": 2,
+  "rows": [
+    {
+      "players": 8,
+      "connected": 8,
+      "entities": 33,
+      "tickP50": 0.486,
+      "tickP99": 2.433,
+      "jitterP99": 1.13,
+      "skipped": 0,
+      "elu": 0.033,
+      "rssMB": 107,
+      "outKBps": 172,
+      "framesReceivedPerClientPerSec": 30.4
+    },
+    {
+      "players": 32,
+      "connected": 32,
+      "entities": 94,
+      "tickP50": 0.907,
+      "tickP99": 2.92,
+      "jitterP99": 1.16,
+      "skipped": 0,
+      "elu": 0.048,
+      "rssMB": 122,
+      "outKBps": 1976,
+      "framesReceivedPerClientPerSec": 31.2
+    },
+    {
+      "players": 64,
+      "connected": 64,
+      "entities": 159,
+      "tickP50": 1.416,
+      "tickP99": 4.089,
+      "jitterP99": 1.33,
+      "skipped": 0,
+      "elu": 0.074,
+      "rssMB": 126,
+      "outKBps": 6768,
+      "framesReceivedPerClientPerSec": 32.5
+    },
+    {
+      "players": 128,
+      "connected": 128,
+      "entities": 272,
+      "tickP50": 2.485,
+      "tickP99": 5.671,
+      "jitterP99": 1.24,
+      "skipped": 0,
+      "elu": 0.129,
+      "rssMB": 149,
+      "outKBps": 23179,
+      "framesReceivedPerClientPerSec": 34.8
+    },
+    {
+      "players": 192,
+      "connected": 192,
+      "entities": 343,
+      "tickP50": 3.863,
+      "tickP99": 10.257,
+      "jitterP99": 1.15,
+      "skipped": 0,
+      "elu": 0.198,
+      "rssMB": 158,
+      "outKBps": 46334,
+      "framesReceivedPerClientPerSec": 37.3
+    },
+    {
+      "players": 256,
+      "connected": 256,
+      "entities": 404,
+      "tickP50": 5.675,
+      "tickP99": 17.918,
+      "jitterP99": 1.12,
+      "skipped": 0,
+      "elu": 0.29,
+      "rssMB": 166,
+      "outKBps": 76877,
+      "framesReceivedPerClientPerSec": 40.3
+    }
+  ]
+}

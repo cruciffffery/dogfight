@@ -27,7 +27,7 @@ const env = z.preprocess(
     LOG_DIR: z.string().default("./logs"),
     STATIC_DIR: z.string().default(fileURLToPath(new URL("../../client/dist", import.meta.url))),
     MAX_ROOMS: int(50, 1),
-    MAX_PLAYERS_PER_ROOM: int(8, 1, 64),
+    MAX_PLAYERS_PER_ROOM: int(8, 1, 256),
     MAX_PAYLOAD: int(4096, 256),
     JOIN_TIMEOUT_MS: int(5000, 100),
     HEARTBEAT_MS: int(15000, 50),
@@ -38,6 +38,8 @@ const env = z.preprocess(
     ENABLE_DEBUG_ROUTES: bool(false),
     DEMO_NO_ERROR_LISTENER: bool(false),
     SHUTDOWN_TIMEOUT_MS: int(10000, 100),
+    /** Лаба 7: "grid" — просторовий хеш (за замовчуванням), "naive" — O(n²) для порівняння. */
+    COLLISIONS: z.enum(["grid", "naive"]).default("grid"),
   }),
 );
 
@@ -58,6 +60,7 @@ export interface ServerConfig {
   readonly debugRoutes: boolean;
   readonly demoNoErrorListener: boolean;
   readonly shutdownTimeoutMs: number;
+  readonly collisions: "grid" | "naive";
 }
 
 export function loadConfig(source: Record<string, string | undefined> = process.env): ServerConfig {
@@ -82,5 +85,6 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     debugRoutes: e.ENABLE_DEBUG_ROUTES,
     demoNoErrorListener: e.DEMO_NO_ERROR_LISTENER,
     shutdownTimeoutMs: e.SHUTDOWN_TIMEOUT_MS,
+    collisions: e.COLLISIONS,
   });
 }

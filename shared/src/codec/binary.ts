@@ -60,6 +60,9 @@ export function snapshotSize(snap: Snapshot): number {
   return size + snap.events.length * EVENT_SIZE + snap.scores.length * SCORE_SIZE;
 }
 
+/** Зсув поля ack у бінарному знімку — сервер дописує його на копію спільного кадру. */
+export const SNAPSHOT_ACK_OFFSET = 6;
+
 export function encodeSnapshot(snap: Snapshot): ArrayBuffer {
   if (snap.entities.length > 0xffff) throw new CodecError("too many entities");
   const body: Snapshot = {
@@ -72,7 +75,7 @@ export function encodeSnapshot(snap: Snapshot): ArrayBuffer {
   dv.setUint8(0, MSG.snapshot);
   dv.setUint32(1, u32(snap.tick, "tick"), LE);
   dv.setUint8(5, BINARY_VERSION);
-  dv.setUint32(6, u32(snap.ack, "ack"), LE);
+  dv.setUint32(SNAPSHOT_ACK_OFFSET, u32(snap.ack, "ack"), LE);
   dv.setUint16(10, snap.entities.length, LE);
   dv.setUint8(12, body.events.length);
   dv.setUint8(13, body.scores.length);

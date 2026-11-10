@@ -126,16 +126,21 @@ export function createStarfield(arena: Arena, count = 260, seed = 1337): Star[] 
   }));
 }
 
-export function drawBackground(view: View, arena: Arena, stars: readonly Star[]): void {
-  const { ctx } = view;
-  screenSpace(view);
+/**
+ * Фон (сітка + зорі + рамка) малюється ОДИН раз в окремий canvas і стає CSS-фоном полотна.
+ * Раніше це було ~400 викликів arc/fill щокадру — головний «пожирач» CPU у профілі «до»;
+ * проміжна версія з drawImage(кеш) щокадру виявилась дорогою під CPU ×4 (33 % self time).
+ */
+let bgCache: { canvas: HTMLCanvasElement; key: string } | null = null;
+
+function paintBackground(ctx: Ctx, view: View, arena: Arena, stars: readonly Star[]): void {
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.fillStyle = COLORS.void;
   ctx.fillRect(0, 0, view.cssWidth, view.cssHeight);
-
-  worldSpace(view);
+  const s = view.dpr * view.scale;
+  ctx.setTransform(s, 0, 0, s, view.dpr * view.offsetX, view.dpr * view.offsetY);
   ctx.fillStyle = COLORS.arena;
   ctx.fillRect(0, 0, arena.width, arena.height);
-
   ctx.strokeStyle = COLORS.grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -148,30 +153,59 @@ export function drawBackground(view: View, arena: Arena, stars: readonly Star[])
     ctx.lineTo(arena.width, y);
   }
   ctx.stroke();
-
   ctx.fillStyle = COLORS.hull;
-  for (const s of stars) {
-    ctx.globalAlpha = s.a;
+  for (const star of stars) {
+    ctx.globalAlpha = star.a;
     ctx.beginPath();
-    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
-
   ctx.strokeStyle = COLORS.border;
   ctx.lineWidth = 2;
   ctx.strokeRect(0, 0, arena.width, arena.height);
 }
 
+export function drawBackground(view: View, arena: Arena, stars: readonly Star[]): void {
+  const { ctx, canvas } = view;
+  const key = `${canvas.width}x${canvas.height}@${view.scale}:${arena.width}x${arena.height}:${stars.length}`;
+  if (bgCache?.key !== key) {
+    const off = document.createElement("canvas");
+    off.width = canvas.width;
+    off.height = canvas.height;
+    const octx = off.getContext("2d", { alpha: false });
+    if (!octx) {
+      paintBackground(ctx, view, arena, stars); // без кешу, але працює
+      return;
+    }
+    paintBackground(octx, view, arena, stars);
+    bgCache = { canvas: off, key };
+    // Фон стає CSS-фоном самого <canvas>: його складає компoзитор (GPU), а не головний потік.
+    // Щокадру лишається тільки clearRect прозорого полотна (див. alpha: true у canvas.ts).
+    canvas.style.background = `url(${off.toDataURL()}) 0 0 / 100% 100% no-repeat, ${COLORS.void}`;
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
 /** Позиція між попереднім і поточним кроком з урахуванням перельоту через край. */
-export function lerpPos(prev: Vec, cur: Vec, t: number, arena: Arena): Vec {
+/** Позиція між prev і cur з урахуванням перельоту через край. Пише в `out` — без алокацій. */
+export function lerpPos(
+  prev: Vec,
+  cur: Vec,
+  t: number,
+  arena: Arena,
+  out: { x: number; y: number } = { x: 0, y: 0 },
+): Vec {
   let px = prev.x;
   let py = prev.y;
   if (cur.x - px > arena.width / 2) px += arena.width;
   else if (px - cur.x > arena.width / 2) px -= arena.width;
   if (cur.y - py > arena.height / 2) py += arena.height;
   else if (py - cur.y > arena.height / 2) py -= arena.height;
-  return { x: px + (cur.x - px) * t, y: py + (cur.y - py) * t };
+  out.x = px + (cur.x - px) * t;
+  out.y = py + (cur.y - py) * t;
+  return out;
 }
 
 // ---------- форми в локальних координатах (ніс дивиться вправо) ----------
@@ -280,31 +314,44 @@ function pickupShape(ctx: Ctx, p: RenderPickup): void {
  * Малює сутність у кількох копіях біля країв арени, щоб перехід через край був безшовним.
  * `shape(ctx, entity)` малює в локальних координатах.
  */
-function drawWrapped(
+/**
+ * Малює сутність у копіях біля країв арени. Без масивів і без замикання на кожен виклик:
+ * функція форми і сама сутність передаються параметрами.
+ */
+function drawWrapped<E>(
   ctx: Ctx,
   arena: Arena,
   x: number,
   y: number,
   angle: number,
   radius: number,
-  shape: () => void,
+  shape: (ctx: Ctx, e: E, time: number) => void,
+  e: E,
+  time: number,
 ): void {
   const m = radius + 24;
-  const xs = [x];
-  const ys = [y];
-  if (x < m) xs.push(x + arena.width);
-  if (x > arena.width - m) xs.push(x - arena.width);
-  if (y < m) ys.push(y + arena.height);
-  if (y > arena.height - m) ys.push(y - arena.height);
-  for (const px of xs) {
-    for (const py of ys) {
-      ctx.save();
-      ctx.translate(px, py);
-      ctx.rotate(angle);
-      shape();
-      ctx.restore();
-    }
-  }
+  const xAlt = x < m ? x + arena.width : x > arena.width - m ? x - arena.width : Number.NaN;
+  const yAlt = y < m ? y + arena.height : y > arena.height - m ? y - arena.height : Number.NaN;
+  drawAt(ctx, x, y, angle, shape, e, time);
+  if (!Number.isNaN(xAlt)) drawAt(ctx, xAlt, y, angle, shape, e, time);
+  if (!Number.isNaN(yAlt)) drawAt(ctx, x, yAlt, angle, shape, e, time);
+  if (!Number.isNaN(xAlt) && !Number.isNaN(yAlt)) drawAt(ctx, xAlt, yAlt, angle, shape, e, time);
+}
+
+function drawAt<E>(
+  ctx: Ctx,
+  x: number,
+  y: number,
+  angle: number,
+  shape: (ctx: Ctx, e: E, time: number) => void,
+  e: E,
+  time: number,
+): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  shape(ctx, e, time);
+  ctx.restore();
 }
 
 function drawExplosion(ctx: Ctx, e: RenderExplosion): void {
@@ -337,6 +384,8 @@ function drawHealthBar(ctx: Ctx, x: number, y: number, ship: RenderShip): void {
  * Малює всі сутності світу з інтерполяцією між prev і поточним станом.
  * Рендер лише ЧИТАЄ світ — нічого в ньому не змінює.
  */
+const scratch = { x: 0, y: 0 };
+
 export function drawWorld(view: View, world: RenderScene, alpha: number, time: number): void {
   const { ctx } = view;
   const arena = world.arena;
@@ -353,21 +402,21 @@ export function drawWorld(view: View, world: RenderScene, alpha: number, time: n
       continue;
     }
     if (e.kind === "ship" && e.destroyed) continue;
-    const p = lerpPos(e.prevPos, e.pos, alpha, arena);
+    const p = lerpPos(e.prevPos, e.pos, alpha, arena, scratch);
     const angle = lerpAngle(e.prevAngle, e.angle, alpha);
     switch (e.kind) {
       case "ship":
-        drawWrapped(ctx, arena, p.x, p.y, angle, e.radius, () => shipShape(ctx, e, time));
+        drawWrapped(ctx, arena, p.x, p.y, angle, e.radius, shipShape, e, time);
         drawHealthBar(ctx, p.x, p.y, e);
         break;
       case "asteroid":
-        drawWrapped(ctx, arena, p.x, p.y, angle, e.radius, () => asteroidShape(ctx, e));
+        drawWrapped(ctx, arena, p.x, p.y, angle, e.radius, asteroidShape, e, time);
         break;
       case "bullet":
-        drawWrapped(ctx, arena, p.x, p.y, angle, e.radius, () => bulletShape(ctx, e));
+        drawWrapped(ctx, arena, p.x, p.y, angle, e.radius, bulletShape, e, time);
         break;
       case "pickup":
-        drawWrapped(ctx, arena, p.x, p.y, 0, e.radius, () => pickupShape(ctx, e));
+        drawWrapped(ctx, arena, p.x, p.y, 0, e.radius, pickupShape, e, time);
         break;
       default: {
         const unhandled: never = e;

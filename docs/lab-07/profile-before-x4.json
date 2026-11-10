@@ -1,0 +1,129 @@
+{
+  "label": "before-x4",
+  "seconds": 30,
+  "throttle": 4,
+  "env": {
+    "chromium": "141 headless",
+    "node": "v22.22.0",
+    "cpu": "container"
+  },
+  "entitiesInLastSnapshot": 29,
+  "frames": 1695,
+  "frameIntervalMs": {
+    "p50": 16.7,
+    "p95": 33.3,
+    "p99": 33.4,
+    "max": 150
+  },
+  "longFrames": 200,
+  "measures": {
+    "decode": {
+      "count": 959,
+      "p50": 0,
+      "p95": 0.8,
+      "p99": 1.1,
+      "max": 6.1,
+      "total": 108.5
+    }
+  },
+  "gc": {
+    "minor": {
+      "count": 20,
+      "totalMs": 78.9
+    },
+    "major": {
+      "count": 10,
+      "totalMs": 118.5
+    }
+  },
+  "topSelfTime": [
+    {
+      "fn": "fillText :0",
+      "ms": 760.2,
+      "pct": 14.4
+    },
+    {
+      "fn": "arc :0",
+      "ms": 440,
+      "pct": 8.3
+    },
+    {
+      "fn": "fillRect :0",
+      "ms": 367.7,
+      "pct": 7
+    },
+    {
+      "fn": "drawImage :0",
+      "ms": 353,
+      "pct": 6.7
+    },
+    {
+      "fn": "fill :0",
+      "ms": 292.9,
+      "pct": 5.6
+    },
+    {
+      "fn": "(garbage collector) :0",
+      "ms": 273.3,
+      "pct": 5.2
+    },
+    {
+      "fn": "requestAnimationFrame :0",
+      "ms": 193.8,
+      "pct": 3.7
+    },
+    {
+      "fn": "drawBackground main-Dh_9KJEu.js:6990",
+      "ms": 192.8,
+      "pct": 3.7
+    }
+  ],
+  "topAllocators": [
+    {
+      "fn": "next :0",
+      "kb": 13160,
+      "pct": 15.3
+    },
+    {
+      "fn": "toRenderEntity main-Dh_9KJEu.js:8524",
+      "kb": 11051,
+      "pct": 12.9
+    },
+    {
+      "fn": "interpolateEntities main-Dh_9KJEu.js:8141",
+      "kb": 9513,
+      "pct": 11.1
+    },
+    {
+      "fn": "drawWorld main-Dh_9KJEu.js:7167",
+      "kb": 9297,
+      "pct": 10.8
+    },
+    {
+      "fn": "decodeSnapshot main-Dh_9KJEu.js:7783",
+      "kb": 5251,
+      "pct": 6.1
+    },
+    {
+      "fn": "drawHud main-Dh_9KJEu.js:7212",
+      "kb": 4804,
+      "pct": 5.6
+    },
+    {
+      "fn": "drawWrapped main-Dh_9KJEu.js:7125",
+      "kb": 4503,
+      "pct": 5.2
+    },
+    {
+      "fn": "drawBackground main-Dh_9KJEu.js:6990",
+      "kb": 3741,
+      "pct": 4.4
+    }
+  ],
+  "sampledAllocKB": 85958,
+  "busyMs": 5273,
+  "serverTickMs": {
+    "p50": 0.569,
+    "p99": 3.604
+  }
+}

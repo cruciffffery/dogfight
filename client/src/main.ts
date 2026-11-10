@@ -20,6 +20,7 @@ import { mountLobbyView } from "./lobby/view.ts";
 import { mountRoomUi } from "./net/chat-view.ts";
 import { Connection } from "./net/connection.ts";
 import { type OnlineGame, startOnlineGame } from "./online.ts";
+import { type PerfSummary, perfSummary } from "./perf.ts";
 import { setupCanvas } from "./render/canvas.ts";
 import { setSprites } from "./render/draw.ts";
 import { type Choice, createLoadingScreen, type LoadingScreen } from "./render/loading.ts";
@@ -35,6 +36,7 @@ interface LabHandle {
   welcome?: ServerMessageOf<"welcome">;
   playerId?: number;
   game?: LocalGame | OnlineGame;
+  perf?: (reset?: boolean) => PerfSummary;
 }
 
 declare global {
@@ -48,7 +50,7 @@ const params = new URLSearchParams(location.search);
 const canvas = document.getElementById("game");
 if (!(canvas instanceof HTMLCanvasElement)) throw new Error("#game canvas is missing");
 const view = setupCanvas(canvas, createArena());
-window.__lab = { config };
+window.__lab = { config, perf: perfSummary };
 
 /** Навмисні збої для «галереї відмов» (README, Лаба 3). */
 function injectFailures(manifest: Manifest, mode: string | null): Manifest {

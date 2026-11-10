@@ -1,7 +1,22 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["**", "!**/dist", "!**/node_modules", "!server/logs"] },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!server/logs",
+      "!**/coverage",
+      "!test-results",
+      "!playwright-report",
+      "!docs/**/*.json"
+    ]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -19,8 +34,29 @@
     "enabled": true,
     "rules": {
       "preset": "recommended",
-      "style": { "useConst": "error" },
-      "suspicious": { "noConsole": "off", "noVar": "error" }
+      "style": {
+        "useConst": "error"
+      },
+      "suspicious": {
+        "noConsole": "off",
+        "noVar": "error"
+      },
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "error"
+      }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["docs/lab-03/puzzles.js"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "off"
+          }
+        }
+      }
+    }
+  ]
 }

@@ -1,0 +1,152 @@
+{
+  "label": "before",
+  "seconds": 30,
+  "env": {
+    "chromium": "141 headless",
+    "node": "v22.22.0",
+    "cpu": "container"
+  },
+  "entitiesInLastSnapshot": 36,
+  "frames": 1867,
+  "frameIntervalMs": {
+    "p50": 16.7,
+    "p95": 16.7,
+    "p99": 16.8,
+    "max": 33.4
+  },
+  "longFrames": 1,
+  "measures": {
+    "render": {
+      "count": 1868,
+      "p50": 0.7,
+      "p95": 1.8,
+      "p99": 2.5,
+      "max": 4.2,
+      "total": 1604.1
+    },
+    "simulate": {
+      "count": 934,
+      "p50": 0.1,
+      "p95": 1.2,
+      "p99": 1.4,
+      "max": 2.5,
+      "total": 204.2
+    },
+    "decode": {
+      "count": 934,
+      "p50": 0,
+      "p95": 0.1,
+      "p99": 0.1,
+      "max": 2.4,
+      "total": 31.7
+    },
+    "reconcile": {
+      "count": 751,
+      "p50": 0,
+      "p95": 0.1,
+      "p99": 0.1,
+      "max": 0.2,
+      "total": 11
+    }
+  },
+  "gc": {
+    "minor": {
+      "count": 26,
+      "totalMs": 28.2
+    },
+    "major": {
+      "count": 12,
+      "totalMs": 36.4
+    }
+  },
+  "topSelfTime": [
+    {
+      "fn": "fillText :0",
+      "ms": 131.5,
+      "pct": 8.4
+    },
+    {
+      "fn": "arc :0",
+      "ms": 114.1,
+      "pct": 7.3
+    },
+    {
+      "fn": "(garbage collector) :0",
+      "ms": 108.4,
+      "pct": 6.9
+    },
+    {
+      "fn": "fill :0",
+      "ms": 84,
+      "pct": 5.4
+    },
+    {
+      "fn": "drawImage :0",
+      "ms": 81.2,
+      "pct": 5.2
+    },
+    {
+      "fn": "send :0",
+      "ms": 73,
+      "pct": 4.7
+    },
+    {
+      "fn": "fillRect :0",
+      "ms": 69.1,
+      "pct": 4.4
+    },
+    {
+      "fn": "drawBackground main-4c2EGyp0.js:6990",
+      "ms": 58.6,
+      "pct": 3.8
+    }
+  ],
+  "topAllocators": [
+    {
+      "fn": "next :0",
+      "kb": 13365,
+      "pct": 14.1
+    },
+    {
+      "fn": "toRenderEntity main-4c2EGyp0.js:8529",
+      "kb": 12402,
+      "pct": 13.1
+    },
+    {
+      "fn": "interpolateEntities main-4c2EGyp0.js:8145",
+      "kb": 10692,
+      "pct": 11.3
+    },
+    {
+      "fn": "drawWorld main-4c2EGyp0.js:7167",
+      "kb": 9968,
+      "pct": 10.5
+    },
+    {
+      "fn": "drawWrapped main-4c2EGyp0.js:7125",
+      "kb": 7411,
+      "pct": 7.8
+    },
+    {
+      "fn": "decodeSnapshot main-4c2EGyp0.js:7783",
+      "kb": 5372,
+      "pct": 5.7
+    },
+    {
+      "fn": "drawHud main-4c2EGyp0.js:7212",
+      "kb": 4888,
+      "pct": 5.2
+    },
+    {
+      "fn": "drawBackground main-4c2EGyp0.js:6990",
+      "kb": 4130,
+      "pct": 4.4
+    }
+  ],
+  "sampledAllocKB": 94518,
+  "busyMs": 1560,
+  "serverTickMs": {
+    "p50": 0.362,
+    "p99": 0.771
+  }
+}

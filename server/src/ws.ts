@@ -23,6 +23,7 @@ import { assertNever, type Command, PlayerId } from "@dogfight/shared/types.ts";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
 import type { ServerConfig } from "./config.ts";
+import { startHeartbeat } from "./heartbeat.ts";
 import type { Logger } from "./logger.ts";
 import type { Match } from "./match.ts";
 import { createTokenBucket, type TokenBucket } from "./ratelimit.ts";
@@ -323,25 +324,21 @@ export function attachWebSockets({
     });
   });
 
-  const heartbeat = setInterval(() => {
-    for (const socket of wss.clients) {
-      const state = states.get(socket);
-      if (!state) continue;
-      if (state.missedPongs >= 2) {
-        log.info({ playerId: state.player?.id }, "heartbeat timeout");
-        counters.heartbeatKills += 1;
-        reject("heartbeat");
-        socket.terminate();
-        continue;
-      }
-      state.missedPongs += 1;
-      socket.ping();
-    }
-  }, config.heartbeatMs);
-  heartbeat.unref();
+  const stopHeartbeat = startHeartbeat({
+    intervalMs: config.heartbeatMs,
+    clients: () => wss.clients,
+    state: (socket) => states.get(socket),
+    ping: (socket) => socket.ping(),
+    kill: (socket) => {
+      log.info({ playerId: states.get(socket)?.player?.id }, "heartbeat timeout");
+      counters.heartbeatKills += 1;
+      reject("heartbeat");
+      socket.terminate();
+    },
+  });
 
   function closeAll(): Promise<void> {
-    clearInterval(heartbeat);
+    stopHeartbeat();
     for (const socket of wss.clients) {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(encodeServerMessage({ type: "shutdown" }));

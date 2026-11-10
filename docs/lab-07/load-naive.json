@@ -1,0 +1,60 @@
+{
+  "collisions": "naive",
+  "seconds": 12,
+  "node": "v22.22.0",
+  "cpus": 2,
+  "rows": [
+    {
+      "players": 8,
+      "connected": 8,
+      "entities": 34,
+      "tickP50": 0.488,
+      "tickP99": 1.27,
+      "jitterP99": 1.15,
+      "skipped": 0,
+      "elu": 0.029,
+      "rssMB": 120,
+      "outKBps": 153,
+      "framesReceivedPerClientPerSec": 30.4
+    },
+    {
+      "players": 32,
+      "connected": 32,
+      "entities": 81,
+      "tickP50": 1.014,
+      "tickP99": 4.869,
+      "jitterP99": 1.16,
+      "skipped": 0,
+      "elu": 0.051,
+      "rssMB": 122,
+      "outKBps": 1612,
+      "framesReceivedPerClientPerSec": 31.3
+    },
+    {
+      "players": 64,
+      "connected": 64,
+      "entities": 132,
+      "tickP50": 1.697,
+      "tickP99": 6.33,
+      "jitterP99": 1.2,
+      "skipped": 0,
+      "elu": 0.082,
+      "rssMB": 125,
+      "outKBps": 5507,
+      "framesReceivedPerClientPerSec": 32.4
+    },
+    {
+      "players": 128,
+      "connected": 128,
+      "entities": 199,
+      "tickP50": 3.125,
+      "tickP99": 10.174,
+      "jitterP99": 1.16,
+      "skipped": 0,
+      "elu": 0.146,
+      "rssMB": 147,
+      "outKBps": 18865,
+      "framesReceivedPerClientPerSec": 34.8
+    }
+  ]
+}

@@ -116,6 +116,8 @@ export interface HttpDeps {
   rooms: RoomManager;
   stats: () => unknown;
   log: Logger;
+  /** Боти (Лаба 7): додати N у кімнату / прибрати всіх. */
+  bots?: { add(roomId: string, count: number): number; remove(roomId: string): number };
   /** Додаткові маршрути (Лаба 8: /ready, /metrics). Повертає true, якщо обробив. */
   extraRoutes?: (
     req: IncomingMessage,
@@ -124,7 +126,7 @@ export interface HttpDeps {
   ) => Promise<boolean> | boolean;
 }
 
-export function createHttpHandler({ config, rooms, stats, log, extraRoutes }: HttpDeps) {
+export function createHttpHandler({ config, rooms, stats, log, extraRoutes, bots }: HttpDeps) {
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://x");
     const path = url.pathname;
@@ -153,6 +155,21 @@ export function createHttpHandler({ config, rooms, stats, log, extraRoutes }: Ht
           throw err;
         }
       }
+      throw new HttpError(405, "method not allowed");
+    }
+
+    const botsMatch = /^\/api\/rooms\/([a-z0-9-]{1,32})\/bots$/.exec(path);
+    if (botsMatch && bots) {
+      const roomId = botsMatch[1] ?? "";
+      if (!rooms.get(roomId)) throw new HttpError(404, "no such room");
+      if (req.method === "POST") {
+        const parsed = z
+          .object({ count: z.number().int().min(1).max(64) })
+          .safeParse(await readJsonBody(req));
+        if (!parsed.success) throw new HttpError(422, "count: 1..64");
+        return sendJson(res, 201, { added: bots.add(roomId, parsed.data.count) });
+      }
+      if (req.method === "DELETE") return sendJson(res, 200, { removed: bots.remove(roomId) });
       throw new HttpError(405, "method not allowed");
     }
 

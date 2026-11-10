@@ -1,0 +1,9 @@
+{
+  "note": "node server/scripts/worker-bench.ts, 600 тіків, контейнер 2 vCPU, Node 22.22",
+  "rows": [
+    {"ships":8,"mainThreadMsP50":0.147,"mainThreadMsP99":4.36,"workerMainBusyMsP50":0.004,"workerLatencyMsP50":0.144,"workerLatencyMsP99":3.319,"budgetMs":33.3},
+    {"ships":64,"mainThreadMsP50":0.374,"mainThreadMsP99":2.476,"workerMainBusyMsP50":0.012,"workerLatencyMsP50":0.578,"workerLatencyMsP99":6.344,"budgetMs":33.3},
+    {"ships":128,"mainThreadMsP50":0.817,"mainThreadMsP99":3.082,"workerMainBusyMsP50":0.011,"workerLatencyMsP50":1.074,"workerLatencyMsP99":6.426,"budgetMs":33.3},
+    {"ships":256,"mainThreadMsP50":1.845,"mainThreadMsP99":7.921,"workerMainBusyMsP50":0.018,"workerLatencyMsP50":2.818,"workerLatencyMsP99":11.12,"budgetMs":33.3}
+  ]
+}

@@ -131,8 +131,8 @@ export function createLoop({
     },
     stop() {
       running = false;
-      cancelAnimationFrame(rafHandle);
-      clearInterval(intervalHandle);
+      if (scheduler === "raf") cancelAnimationFrame(rafHandle);
+      else clearInterval(intervalHandle);
     },
     stats,
     isRunning: () => running,

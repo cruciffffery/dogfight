@@ -3,10 +3,12 @@
  * знімок кожному гравцю з його lastProcessedSeq. Таймер — з абсолютною ціллю.
  */
 import { ARENAS } from "@dogfight/shared/arenas.ts";
-import { type Codec, codecs, frameSize } from "@dogfight/shared/codec/index.ts";
+import { SNAPSHOT_ACK_OFFSET } from "@dogfight/shared/codec/binary.ts";
+import { binaryCodec, type Codec, codecs, frameSize } from "@dogfight/shared/codec/index.ts";
 import { buildSnapshot } from "@dogfight/shared/protocol/snapshot.ts";
 import { type ArenaConfig, type CodecName, TICK_DT, TICK_RATE } from "@dogfight/shared/protocol.ts";
 import { createArena } from "@dogfight/shared/sim/arena.ts";
+import { type CollisionSystem, spatialHashCollisions } from "@dogfight/shared/sim/collision.ts";
 import { Ship, SKINS } from "@dogfight/shared/sim/entities/ship.ts";
 import { spawnAsteroid, World } from "@dogfight/shared/sim/world.ts";
 import {
@@ -52,6 +54,8 @@ export interface MatchOptions {
   arena?: ArenaConfig;
   seed?: number;
   now?: () => number;
+  /** Система колізій: просторовий хеш за замовчуванням (Лаба 7). */
+  collide?: CollisionSystem;
 }
 
 export class Match {
@@ -69,12 +73,19 @@ export class Match {
   bytesOut = 0;
   /** Тести вимикають таймер і викликають tick() самі. */
   autoStart = true;
+  readonly #beforeTick = new Set<() => void>();
+  /** Колбеки до кожного тіку (боти подають команди саме тут). Повертає відписку. */
+  onBeforeTick(fn: () => void): () => void {
+    this.#beforeTick.add(fn);
+    return () => this.#beforeTick.delete(fn);
+  }
 
   constructor({
     room,
     arena = ARENAS.classic,
     seed = Date.now() & 0xffff,
     now = () => performance.now(),
+    collide = spatialHashCollisions,
   }: MatchOptions) {
     this.room = room;
     this.arenaConfig = arena;
@@ -82,6 +93,7 @@ export class Match {
     this.world = new World({
       arena: createArena(arena.width, arena.height),
       seed,
+      collide,
       rules: { asteroids: arena.asteroids, pickupEvery: arena.pickupEvery },
     });
     for (let i = 0; i < arena.asteroids; i++) spawnAsteroid(this.world, { hunter: i === 0 });
@@ -167,6 +179,7 @@ export class Match {
   tick(): void {
     const t0 = this.now();
     this.tickIndex += 1;
+    for (const fn of this.#beforeTick) fn();
     const inputs = new Map<EntityId, SeqCommand>();
     for (const p of this.players.values()) {
       const cmd = p.queue.shift();
@@ -180,8 +193,18 @@ export class Match {
     }
     this.world.step(TICK_DT, inputs);
     const snapshot = buildSnapshot(this.world, this.world.drainEvents());
+    // Лаба 7: знімок кодуємо ОДИН раз на кодек, а не на кожного гравця. Для бінарного кадру
+    // відрізняється лише ack (u32 за зсувом 6) — копіюємо буфер і дописуємо 4 байти.
+    let binary: ArrayBuffer | null = null;
     for (const p of this.players.values()) {
-      const data = p.codec.encodeSnapshot({ ...snapshot, ack: p.lastSeq });
+      let data: string | ArrayBuffer;
+      if (p.codec === binaryCodec) {
+        binary ??= binaryCodec.encodeSnapshot({ ...snapshot, ack: 0 }) as ArrayBuffer;
+        data = binary.slice(0);
+        new DataView(data).setUint32(SNAPSHOT_ACK_OFFSET, p.lastSeq >>> 0, true);
+      } else {
+        data = p.codec.encodeSnapshot({ ...snapshot, ack: p.lastSeq });
+      }
       this.bytesOut += frameSize(data);
       p.player.send(data, { critical: false });
     }

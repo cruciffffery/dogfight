@@ -17,7 +17,8 @@ export interface View {
 
 export function setupCanvas(canvas: HTMLCanvasElement, initialArena: Arena): View {
   let arena = initialArena;
-  const ctx = canvas.getContext("2d", { alpha: false });
+  // alpha: true — крізь прозоре полотно видно CSS-фон (кешована арена, Лаба 7)
+  const ctx = canvas.getContext("2d", { alpha: true });
   if (!ctx) throw new Error("Canvas 2D is not supported");
 
   const view: View = {

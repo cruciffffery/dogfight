@@ -64,6 +64,9 @@ const SERVER = process.env.SERVER_URL ?? "http://localhost:8080";
 export default defineConfig({
   plugins: [failureLab()],
   build: {
+    // PROFILE=1 npm run build — без мініфікації, щоб у профілі були справжні імена функцій
+    minify: process.env.PROFILE ? false : "esbuild",
+    sourcemap: Boolean(process.env.PROFILE),
     rollupOptions: {
       input: {
         main: new URL("./index.html", import.meta.url).pathname,

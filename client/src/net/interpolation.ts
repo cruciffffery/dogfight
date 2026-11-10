@@ -96,3 +96,30 @@ export function interpolateEntities(
   }
   return out;
 }
+
+/**
+ * Те саме, що interpolateEntities, але БЕЗ алокацій: замість масиву нових об'єктів
+ * викликає visit(стан, x, y, angle) для кожної видимої сутності. visit створюється один раз.
+ * Обхід через .values(), а не деструктуризацію [id, e] — та створює масив на кожну пару.
+ */
+export function forEachInterpolated(
+  { a, b, k }: Bracket,
+  arena: Arena,
+  skip: (e: EntityState) => boolean,
+  visit: (e: EntityState, x: number, y: number, angle: number) => void,
+): void {
+  for (const ea of a.byId.values()) {
+    if (skip(ea)) continue;
+    const eb = b.byId.get(ea.id);
+    if (!eb) {
+      visit(ea, ea.x, ea.y, ea.angle);
+      continue;
+    }
+    visit(
+      eb,
+      lerpWrapped(ea.x, eb.x, k, arena.width),
+      lerpWrapped(ea.y, eb.y, k, arena.height),
+      lerpAngle(ea.angle, eb.angle, k),
+    );
+  }
+}

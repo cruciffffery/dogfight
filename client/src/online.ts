@@ -4,7 +4,14 @@
  */
 import { Bus } from "@dogfight/shared/bus.ts";
 import { encodeInput } from "@dogfight/shared/codec/binary.ts";
-import { EVENT, KIND, PICKUP_TYPES, SHIP_FLAG, SKINS } from "@dogfight/shared/protocol/snapshot.ts";
+import {
+  EVENT,
+  KIND,
+  KIND_NAME,
+  PICKUP_TYPES,
+  SHIP_FLAG,
+  SKINS,
+} from "@dogfight/shared/protocol/snapshot.ts";
 import {
   type EntityState,
   type EventState,
@@ -16,6 +23,7 @@ import {
 } from "@dogfight/shared/protocol.ts";
 import { createArena } from "@dogfight/shared/sim/arena.ts";
 import { Explosion } from "@dogfight/shared/sim/entities/explosion.ts";
+import type { PickupType } from "@dogfight/shared/sim/entities/pickup.ts";
 import { SHIP_RULES } from "@dogfight/shared/sim/entities/ship.ts";
 import { chaos, SHIP } from "@dogfight/shared/sim/physics.ts";
 import { createRng } from "@dogfight/shared/sim/rng.ts";
@@ -28,9 +36,10 @@ import { createHud } from "./hud.ts";
 import { createInput, readCommand } from "./input.ts";
 import { createLoop, type Loop, type LoopStats } from "./loop.ts";
 import type { Connection, NetSim } from "./net/connection.ts";
-import { interpolateEntities, SnapshotBuffer } from "./net/interpolation.ts";
+import { forEachInterpolated, SnapshotBuffer } from "./net/interpolation.ts";
 import { createNetgraph, type Netgraph } from "./net/netgraph.ts";
 import { type PendingInput, type Predicted, predictStep, reconcile } from "./net/prediction.ts";
+import { measure, measured } from "./perf.ts";
 import type { View } from "./render/canvas.ts";
 import {
   createStarfield,
@@ -41,6 +50,7 @@ import {
   type RenderEntity,
   type RenderScene,
 } from "./render/draw.ts";
+import { createLayer } from "./render/layer.ts";
 
 const STEP_MS = TICK_DT * 1000;
 const NETSIM_PRESETS: readonly NetSim[] = [
@@ -50,12 +60,18 @@ const NETSIM_PRESETS: readonly NetSim[] = [
 ];
 const SMOOTH_MS = 100;
 
+/** Передбачена своя куля; одночасно є готовим об'єктом для рендера (RenderBullet). */
 interface LocalBullet {
+  readonly kind: "bullet";
+  readonly alive: true;
+  readonly radius: number;
   seq: number;
   serverId: number | null;
   born: number;
   pos: Vector2;
-  prevPos: Vector2 | null;
+  prevPos: Vector2;
+  angle: number;
+  prevAngle: number;
   vel: Vector2;
   ttl: number;
   homing: boolean;
@@ -103,7 +119,9 @@ export function startOnlineGame({
   const bus = new Bus<WorldEvents>();
   const netgraph = createNetgraph();
   const codec = welcome.codec;
-  const buffer = new SnapshotBuffer({ stepMs: STEP_MS });
+  // 12 знімків = 400 мс — більше за максимальну затримку інтерполяції. Раніше було 64 (2 с):
+  // знімки «доживали» до старого покоління купи, і кожні ~2.5 с запускався повний (major) GC.
+  const buffer = new SnapshotBuffer({ stepMs: STEP_MS, capacity: 12 });
   const fxRng = createRng(1234);
   const myShipId = welcome.shipId;
 
@@ -181,7 +199,10 @@ export function startOnlineGame({
       prevPredicted = predicted;
       pending = pending.filter((p) => p.seq > snap.ack);
     } else {
-      const r = reconcile(predicted, mine, snap.ack, pending, TICK_DT, arena);
+      const current = predicted;
+      const r = measure("reconcile", () =>
+        reconcile(current, mine, snap.ack, pending, TICK_DT, arena),
+      );
       pending = r.pending;
       const px = r.correction.length();
       netgraph.recordCorrection(px);
@@ -245,12 +266,18 @@ export function startOnlineGame({
         cooldown = rapid ? SHIP_RULES.rapidFireCooldown : SHIP_RULES.fireCooldown;
         const dir = Vector2.fromAngle(predicted.angle);
         const pos = predicted.pos.add(dir.scale(SHIP.radius + 6));
+        const angle = predicted.vel.add(dir.scale(SHIP_RULES.bulletSpeed)).angle();
         localBullets.push({
+          kind: "bullet",
+          alive: true,
+          radius: 3,
+          angle,
+          prevAngle: angle,
           seq,
           serverId: null,
           born: performance.now(),
           pos,
-          prevPos: null,
+          prevPos: pos,
           vel: predicted.vel.add(dir.scale(SHIP_RULES.bulletSpeed)),
           ttl: 1.1,
           homing: myServer !== null && (myServer.flags & SHIP_FLAG.homing) !== 0,
@@ -321,7 +348,44 @@ export function startOnlineGame({
     if (pendingEvents.length > 500) pendingEvents.splice(0, pendingEvents.length - 500);
   }
 
-  function toRenderEntity(e: EntityState, time: number): RenderEntity {
+  // ---------- рендер без алокацій у кадрі (Лаба 7) ----------
+  // Об'єкт для малювання кожної сутності створюється ОДИН раз і далі лише оновлюється.
+  interface Pooled {
+    r: MutableRender;
+    frame: number;
+  }
+  // Писні (mutable) версії типів рендера: draw.ts бачить їх як readonly, тут — оновлюємо на місці.
+  interface MVec {
+    x: number;
+    y: number;
+  }
+  interface MBase {
+    alive: boolean;
+    pos: MVec;
+    prevPos: MVec;
+    angle: number;
+    prevAngle: number;
+    radius: number;
+  }
+  type MShip = MBase & {
+    kind: "ship";
+    skin: string;
+    thrust: boolean;
+    destroyed: boolean;
+    hp: number;
+    effects: { shield: number };
+  };
+  type MBullet = MBase & { kind: "bullet"; homing: boolean };
+  type MAsteroid = MBase & { kind: "asteroid"; shapeSeed: number; homing: boolean };
+  type MPickup = MBase & { kind: "pickup"; type: PickupType; age: number };
+  type MutableRender = MShip | MBullet | MAsteroid | MPickup;
+  const pool = new Map<number, Pooled>();
+  let frameNo = 0;
+  let nowMs = 0;
+  const renderList: RenderEntity[] = [];
+  const scene: RenderScene = { arena, [Symbol.iterator]: () => renderList[Symbol.iterator]() };
+
+  function createRender(e: EntityState): MutableRender {
     const pos = { x: e.x, y: e.y };
     const base = { alive: true, pos, prevPos: pos, angle: e.angle, prevAngle: e.angle };
     switch (e.kind) {
@@ -330,142 +394,177 @@ export function startOnlineGame({
           ...base,
           kind: "ship",
           radius: SHIP.radius,
-          skin: SKINS[e.skin] ?? "blue",
-          thrust: (e.flags & SHIP_FLAG.thrust) !== 0,
-          destroyed: (e.flags & SHIP_FLAG.destroyed) !== 0,
-          hp: e.hp,
-          effects: { shield: e.flags & SHIP_FLAG.shield ? 1 : 0 },
+          skin: "blue",
+          thrust: false,
+          destroyed: false,
+          hp: 100,
+          effects: { shield: 0 },
         };
       case KIND.bullet:
-        return { ...base, kind: "bullet", radius: 3, homing: e.homing };
+        return { ...base, kind: "bullet", radius: 3, homing: false };
       case KIND.asteroid:
-        return {
-          ...base,
-          kind: "asteroid",
-          radius: e.radius,
-          shapeSeed: e.variant,
-          homing: e.homing,
-        };
+        return { ...base, kind: "asteroid", radius: e.radius, shapeSeed: e.variant, homing: false };
       case KIND.pickup:
-        return {
-          ...base,
-          kind: "pickup",
-          radius: 12,
-          type: PICKUP_TYPES[e.ptype] ?? "shield",
-          age: time / 1000,
-        };
+        return { ...base, kind: "pickup", radius: 12, type: "shield", age: 0 };
       default:
         return assertNever(e, "entity state");
     }
   }
 
-  let renderList: RenderEntity[] = [];
-  const scene: RenderScene = {
-    arena,
-    [Symbol.iterator]: () => renderList[Symbol.iterator](),
+  /** Оновити пул-об'єкт станом зі знімка (створюється один раз, тут лише записи полів). */
+  function visitEntity(e: EntityState, x: number, y: number, angle: number): void {
+    let slot = pool.get(e.id);
+    if (!slot || slot.r.kind !== KIND_NAME[e.kind]) {
+      slot = { r: createRender(e), frame: 0 };
+      pool.set(e.id, slot);
+    }
+    slot.frame = frameNo;
+    const r = slot.r;
+    r.pos.x = x;
+    r.pos.y = y;
+    r.angle = angle;
+    r.prevAngle = angle;
+    switch (r.kind) {
+      case "ship":
+        if (e.kind === KIND.ship) {
+          r.skin = SKINS[e.skin] ?? "blue";
+          r.thrust = (e.flags & SHIP_FLAG.thrust) !== 0;
+          r.destroyed = (e.flags & SHIP_FLAG.destroyed) !== 0;
+          r.hp = e.hp;
+          r.effects.shield = e.flags & SHIP_FLAG.shield ? 1 : 0;
+        }
+        break;
+      case "bullet":
+        if (e.kind === KIND.bullet) r.homing = e.homing;
+        break;
+      case "asteroid":
+        if (e.kind === KIND.asteroid) r.homing = e.homing;
+        break;
+      case "pickup":
+        if (e.kind === KIND.pickup) {
+          r.type = PICKUP_TYPES[e.ptype] ?? "shield";
+          r.age = nowMs / 1000;
+        }
+        break;
+    }
+    renderList.push(r);
+  }
+
+  const skipInterpolated = (e: EntityState): boolean =>
+    (e.kind === KIND.ship && e.id === myShipId && predicted !== null) ||
+    (e.kind === KIND.bullet && e.owner === myShipId);
+
+  const myShip: MShip = {
+    kind: "ship",
+    alive: true,
+    radius: SHIP.radius,
+    pos: { x: 0, y: 0 },
+    prevPos: { x: 0, y: 0 },
+    angle: 0,
+    prevAngle: 0,
+    skin: "blue",
+    thrust: false,
+    destroyed: false,
+    hp: 100,
+    effects: { shield: 0 },
   };
+
+  const hudLayer = createLayer(view, 100);
+  const netLayer = createLayer(view, 100);
+  let lastStats: LoopStats | null = null;
+  const hudInfo = {
+    targetSteps: 1 / TICK_DT,
+    lines: [
+      { text: "", color: "#cfe0ff" },
+      { text: "←/→ ↑ ↓ Space — політ і вогонь, Enter — чат" },
+    ],
+  };
+  const paintHud = (lv: View): void => {
+    const line = hudInfo.lines[0];
+    if (line) line.text = `${welcome.room.name} · hp ${myServer?.hp ?? "—"} · ship #${myShipId}`;
+    if (lastStats) drawHud(lv, lastStats, hudInfo);
+  };
+  const paintNet = (lv: View): void => netgraph.draw(lv);
+  const toScreen = (x: number, y: number) => ({
+    x: view.offsetX + x * view.scale,
+    y: view.offsetY + y * view.scale,
+  });
 
   function render(alpha: number, stats: LoopStats): void {
     const now = performance.now();
+    nowMs = now;
+    frameNo += 1;
+    lastStats = stats;
     const rt = buffer.renderTime(now, interpDelay);
     flushEvents(rt);
     const br = buffer.bracket(rt);
-    const list: RenderEntity[] = [];
+    renderList.length = 0;
     if (br) {
-      const skip = (e: EntityState): boolean =>
-        (e.kind === KIND.ship && e.id === myShipId && predicted !== null) ||
-        (e.kind === KIND.bullet && e.owner === myShipId);
-      for (const e of interpolateEntities(br, arena, skip)) list.push(toRenderEntity(e, now));
+      forEachInterpolated(br, arena, skipInterpolated, visitEntity);
       netgraph.stats.starved = br.starved ? 1 : 0;
       if (br.starved) netgraph.stats.starvedFrames += 1;
       netgraph.stats.frames += 1;
     }
+    // сутності, що зникли зі знімків, прибираємо з пулу (раз на секунду, щоб не обходити щокадру)
+    if (frameNo % 60 === 0) {
+      for (const [id, slot] of pool) if (frameNo - slot.frame > 30) pool.delete(id);
+    }
     const cur = predicted;
     if (cur && myServer) {
       const prev = prevPredicted ?? cur;
-      const pos = {
-        x: wrap(cur.pos.x + offset.x, arena.width),
-        y: wrap(cur.pos.y + offset.y, arena.height),
-      };
-      list.push({
-        kind: "ship",
-        alive: true,
-        radius: SHIP.radius,
-        pos,
-        prevPos: {
-          x: wrap(prev.pos.x + offset.x, arena.width),
-          y: wrap(prev.pos.y + offset.y, arena.height),
-        },
-        angle: cur.angle,
-        prevAngle: prev.angle,
-        skin: SKINS[myServer.skin] ?? "blue",
-        thrust: cur.thrust,
-        destroyed: false,
-        hp: myServer.hp,
-        effects: { shield: myServer.flags & SHIP_FLAG.shield ? 1 : 0 },
-      });
+      myShip.pos.x = wrap(cur.pos.x + offset.x, arena.width);
+      myShip.pos.y = wrap(cur.pos.y + offset.y, arena.height);
+      myShip.prevPos.x = wrap(prev.pos.x + offset.x, arena.width);
+      myShip.prevPos.y = wrap(prev.pos.y + offset.y, arena.height);
+      myShip.angle = cur.angle;
+      myShip.prevAngle = prev.angle;
+      myShip.skin = SKINS[myServer.skin] ?? "blue";
+      myShip.thrust = cur.thrust;
+      myShip.hp = myServer.hp;
+      myShip.effects.shield = myServer.flags & SHIP_FLAG.shield ? 1 : 0;
+      renderList.push(myShip);
       if (motionProbe.t0 && motionProbe.result === null) {
-        motionProbe.from ??= { ...pos };
-        if (Math.hypot(pos.x - motionProbe.from.x, pos.y - motionProbe.from.y) > 0.5) {
+        motionProbe.from ??= { ...myShip.pos };
+        if (
+          Math.hypot(myShip.pos.x - motionProbe.from.x, myShip.pos.y - motionProbe.from.y) > 0.5
+        ) {
           motionProbe.result = now - motionProbe.t0;
           netgraph.stats.inputToMotion = motionProbe.result;
         }
       }
     }
-    for (const b of localBullets) {
-      const angle = b.vel.angle();
-      list.push({
-        kind: "bullet",
-        alive: true,
-        radius: 3,
-        homing: b.homing,
-        pos: b.pos,
-        prevPos: b.prevPos ?? b.pos,
-        angle,
-        prevAngle: angle,
-      });
-    }
-    for (const fx of effects) list.push(fx);
-    renderList = list;
+    for (const b of localBullets) renderList.push(b);
+    for (const fx of effects) renderList.push(fx);
 
     drawBackground(view, arena, stars);
     drawWorld(view, scene, alpha, now);
-    hud.draw(view, (x, y) => ({
-      x: view.offsetX + x * view.scale,
-      y: view.offsetY + y * view.scale,
-    }));
+    hud.draw(view, toScreen);
 
-    const ns = conn.netsim;
-    Object.assign(netgraph.stats, {
-      snapshotAge: lastArrival ? now - lastArrival : 0,
-      pending: pending.length,
-      interpDelay,
-      buffer: buffer.items.length,
-      codec,
-      predict,
-      netsim:
+    const st = netgraph.stats;
+    st.snapshotAge = lastArrival ? now - lastArrival : 0;
+    st.pending = pending.length;
+    st.interpDelay = interpDelay;
+    st.buffer = buffer.items.length;
+    st.predict = predict;
+    netgraph.update(now, conn.bytes);
+    if (showNet) {
+      const ns = conn.netsim;
+      st.netsim =
         ns.latency || ns.drop
           ? `${ns.latency}±${ns.jitter} ms, ${(ns.drop * 100).toFixed(0)}% drop`
-          : "",
-    });
-    netgraph.update(now, conn.bytes);
-    if (showNet) netgraph.draw(view);
+          : "";
+      netLayer.draw(now, paintNet);
+    } else netLayer.hide();
     if (config.exp !== "none") drawBanner(view, `EXPERIMENT: ${config.exp}`);
-    if (showHud) {
-      drawHud(view, stats, {
-        targetSteps: 1 / TICK_DT,
-        lines: [
-          {
-            text: `${welcome.room.name} · hp ${myServer?.hp ?? "—"} · ship #${myShipId}`,
-            color: "#cfe0ff",
-          },
-          { text: "←/→ ↑ ↓ Space — політ і вогонь, Enter — чат" },
-        ],
-      });
-    }
+    if (showHud) hudLayer.draw(now, paintHud);
+    else hudLayer.hide();
   }
 
-  const loop = createLoop({ step: TICK_DT, simulate, render });
+  const loop = createLoop({
+    step: TICK_DT,
+    simulate: measured("simulate", simulate),
+    render: measured("render", render),
+  });
   loop.start();
 
   return {
@@ -484,6 +583,8 @@ export function startOnlineGame({
     stop() {
       clearInterval(pingTimer);
       loop.stop();
+      hudLayer.destroy();
+      netLayer.destroy();
     },
   };
 }

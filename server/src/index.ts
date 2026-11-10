@@ -3,8 +3,11 @@
  * зрізання типів (type stripping), без кроку збирання.
  */
 import { createServer, type Server } from "node:http";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { ARENAS, isArenaId } from "@dogfight/shared/arenas.ts";
+import { naiveCollisions, spatialHashCollisions } from "@dogfight/shared/sim/collision.ts";
+import { addBot, type BotHandle } from "./bots.ts";
 import { loadConfig, type ServerConfig } from "./config.ts";
 import { createHttpHandler } from "./http.ts";
 import { type MatchLogResult, startMatchLog } from "./log/matchlog.ts";
@@ -28,6 +31,8 @@ export interface ServerStats extends Omit<Counters, "rejected"> {
   rooms: number;
   players: number;
   rss: number;
+  /** Завантаженість циклу подій (0..1) з попереднього виклику stats(). */
+  elu: number;
   uptime: number;
   matches: MatchStats[];
 }
@@ -73,6 +78,7 @@ export function createGameServer(
         match = new Match({
           room,
           arena: isArenaId(room.arena) ? ARENAS[room.arena] : ARENAS.classic,
+          collide: config.collisions === "naive" ? naiveCollisions : spatialHashCollisions,
         });
         matchByRoom.set(room.id, match);
       }
@@ -85,16 +91,46 @@ export function createGameServer(
     matchByRoom.delete(room.id);
   });
 
-  const stats = (): ServerStats => ({
-    ...counters,
-    rooms: rooms.size,
-    players: rooms.playerCount,
-    rss: process.memoryUsage().rss,
-    uptime: process.uptime(),
-    matches: matches.all().map((m) => m.stats()),
-  });
+  let eluPrev = performance.eventLoopUtilization();
+  const stats = (): ServerStats => {
+    const now = performance.eventLoopUtilization();
+    const elu = performance.eventLoopUtilization(now, eluPrev).utilization;
+    eluPrev = now;
+    return {
+      ...counters,
+      rooms: rooms.size,
+      players: rooms.playerCount,
+      rss: process.memoryUsage().rss,
+      elu: +elu.toFixed(3),
+      uptime: process.uptime(),
+      matches: matches.all().map((m) => m.stats()),
+    };
+  };
 
-  const server = createServer(createHttpHandler({ config, rooms, stats, log }));
+  const botsByRoom = new Map<string, BotHandle[]>();
+  const bots = {
+    add(roomId: string, count: number): number {
+      const room = rooms.get(roomId);
+      if (!room) return 0;
+      const match = matches.forRoom(room);
+      const list = botsByRoom.get(roomId) ?? [];
+      let added = 0;
+      for (let i = 0; i < count && !room.isFull; i++) {
+        list.push(addBot(room, match, `bot-${list.length + 1}`));
+        added++;
+      }
+      botsByRoom.set(roomId, list);
+      return added;
+    },
+    remove(roomId: string): number {
+      const list = botsByRoom.get(roomId) ?? [];
+      for (const b of list) b.stop();
+      botsByRoom.delete(roomId);
+      return list.length;
+    },
+  };
+
+  const server = createServer(createHttpHandler({ config, rooms, stats, log, bots }));
   const sockets = attachWebSockets({ server, config, rooms, matches, log, counters });
 
   rooms.create({ id: "alpha", name: "Alpha — classic", arena: "classic", persistent: true });

@@ -83,3 +83,26 @@ describe("Match (authoritative server)", () => {
     expect(s.tickMs.p99).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe("bots", () => {
+  test("a bot plays through the same input path as a human (queue, ack, snapshot)", async () => {
+    const { Room } = await import("../src/rooms.ts");
+    const { addBot, botBrain } = await import("../src/bots.ts");
+    const match = new Match({ room: { id: "b" }, arena: ARENAS.classic, seed: 3 });
+    match.autoStart = false;
+    const room = new Room({ id: "b", name: "B", maxPlayers: 8 });
+    const a = addBot(room, match, "bot-a");
+    addBot(room, match, "bot-b");
+    for (let i = 0; i < 300; i++) match.tick();
+    const p = match.players.get(a.player.id);
+    expect(p?.lastSeq).toBe(300); // кожен тік бот подав рівно одну команду
+    expect(room.roster().map((r) => r.name)).toEqual(["bot-a", "bot-b"]);
+    const fired = [...match.world.ofKind("bullet")].length + match.world.scores.size;
+    expect(fired).toBeGreaterThan(0);
+    if (!p) throw new Error("bot missing");
+    const cmd = botBrain(p.ship, match.world, 1);
+    expect([-1, 0, 1]).toContain(cmd.turn);
+    a.stop();
+    expect(match.players.has(a.player.id)).toBe(false);
+  });
+});
