@@ -8,7 +8,9 @@ import { type Browser, expect, type Page, test } from "@playwright/test";
 declare global {
   interface Window {
     __lab: {
-      welcome?: { shipId: number };
+      welcome?: { shipId: number; playerId: number };
+      conn?: { isOpen: boolean; on(type: "welcome", fn: () => void): () => void };
+      welcomes?: number;
       game?: { buffer: { items: { byId: Map<number, { x: number; y: number }> }[] } };
     };
   }

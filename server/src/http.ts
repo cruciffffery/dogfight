@@ -136,6 +136,7 @@ export function createHttpHandler({ config, rooms, stats, log, extraRoutes, bots
     if (path === "/health") {
       return sendJson(res, 200, {
         status: "ok",
+        version: config.version,
         uptime: Math.round(process.uptime()),
         rooms: rooms.size,
         players: rooms.playerCount,

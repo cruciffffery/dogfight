@@ -60,6 +60,36 @@ interface ConnState {
 /** Бінарний input після декодування проходить ту саму zod-перевірку команд. */
 const BinaryCommandsSchema = z.array(CommandSchema).min(1).max(INPUT_REDUNDANCY);
 
+/** IP клієнта; за довіреним проксі — з Fly-Client-IP / першого X-Forwarded-For. */
+export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) {
+    const fly = req.headers["fly-client-ip"];
+    if (typeof fly === "string" && fly) return fly;
+    const xff = req.headers["x-forwarded-for"];
+    const first = (Array.isArray(xff) ? xff[0] : xff)?.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return req.socket.remoteAddress ?? "?";
+}
+
+/**
+ * Перевірка Origin на рукостисканні (Лаба 8). CORS на WebSocket НЕ діє: без цієї перевірки
+ * сторінка будь-якого сайту може відкрити з'єднання від імені свого відвідувача.
+ * - Origin відсутній → не браузер (curl, loadtest, бот) — пропускаємо, ліміти діють як завжди.
+ * - список ALLOWED_ORIGINS не порожній → Origin має бути в ньому;
+ * - порожній → дозволено лише той самий хост, що в заголовку Host.
+ */
+export function originAllowed(req: IncomingMessage, allowed: readonly string[]): boolean {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  if (allowed.length > 0) return allowed.includes(origin.replace(/\/$/, ""));
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+}
+
 /** RawData від ws (Buffer | ArrayBuffer | Buffer[]) → один Uint8Array. */
 function toBytes(data: RawData): Uint8Array {
   if (Array.isArray(data)) return Buffer.concat(data);
@@ -88,6 +118,24 @@ export function attachWebSockets({
 }: WsDeps) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: config.maxPayload });
   const states = new WeakMap<WebSocket, ConnState>();
+  const perIp = new Map<string, number>();
+  /** Бакет нових з'єднань на IP; старі записи чистимо раз на хвилину, щоб Map не ріс вічно. */
+  const connectBuckets = new Map<string, { bucket: TokenBucket; seen: number }>();
+  const sweep = setInterval(() => {
+    const cutoff = performance.now() - 60_000;
+    for (const [ip, b] of connectBuckets)
+      if (b.seen < cutoff && !perIp.has(ip)) connectBuckets.delete(ip);
+  }, 60_000);
+  sweep.unref();
+  const connectAllowed = (ip: string): boolean => {
+    let entry = connectBuckets.get(ip);
+    if (!entry) {
+      entry = { bucket: createTokenBucket(config.connectRatePerIp), seen: 0 };
+      connectBuckets.set(ip, entry);
+    }
+    entry.seen = performance.now();
+    return entry.bucket.take();
+  };
   let nextPlayerId = 1;
 
   const reject = (reason: string): void => {
@@ -101,10 +149,23 @@ export function attachWebSockets({
       socket.destroy();
       return;
     }
-    const verdict = acceptUpgrade?.(req) ?? { ok: true };
+    const ip = clientIp(req, config.trustProxy);
+    const verdict: { ok: true } | { ok: false; reason: string } = !originAllowed(
+      req,
+      config.allowedOrigins,
+    )
+      ? { ok: false, reason: "bad_origin" }
+      : (perIp.get(ip) ?? 0) >= config.maxConnectionsPerIp
+        ? { ok: false, reason: "ip_limit" }
+        : !connectAllowed(ip)
+          ? { ok: false, reason: "ip_rate" }
+          : (acceptUpgrade?.(req) ?? { ok: true });
     if (!verdict.ok) {
       reject(verdict.reason);
-      log.warn({ ip: req.socket.remoteAddress, reason: verdict.reason }, "upgrade rejected");
+      log.warn(
+        { event: "ws.rejected", ip, origin: req.headers.origin, reason: verdict.reason },
+        "upgrade rejected",
+      );
       socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
@@ -135,7 +196,8 @@ export function attachWebSockets({
   rooms.on("created", wireRoom);
 
   wss.on("connection", (socket: WebSocket, req: IncomingMessage) => {
-    const ip = req.socket.remoteAddress ?? "?";
+    const ip = clientIp(req, config.trustProxy);
+    perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
     const state: ConnState = {
       player: null,
       room: null,
@@ -148,8 +210,15 @@ export function attachWebSockets({
 
     const close = (code: number, reason: string): void => {
       log.info(
-        { ip, playerId: state.player?.id, roomId: state.room?.id, code, reason },
-        "ws close",
+        {
+          event: "ws.closed",
+          ip,
+          playerId: state.player?.id,
+          roomId: state.room?.id,
+          code,
+          reason,
+        },
+        "server closed socket",
       );
       socket.close(code, reason);
     };
@@ -158,7 +227,10 @@ export function attachWebSockets({
       socket.on("error", (err: Error) => {
         counters.socketErrors += 1;
         reject("socket_error");
-        log.warn({ ip, playerId: state.player?.id, err }, "socket error");
+        log.warn(
+          { event: "ws.error", ip, playerId: state.player?.id, roomId: state.room?.id, err },
+          "socket error",
+        );
       });
     }
 
@@ -235,6 +307,10 @@ export function attachWebSockets({
         { critical: true },
       );
       room.join(player);
+      log.info(
+        { event: "player.joined", ip, roomId: room.id, playerId: player.id, codec: msg.codec },
+        "player joined",
+      );
     }
 
     function handleInput(seq: number, cmds: readonly Command[]): void {
@@ -315,7 +391,14 @@ export function attachWebSockets({
     socket.on("close", (code: number) => {
       clearTimeout(joinTimer);
       counters.connections -= 1;
+      const left = (perIp.get(ip) ?? 1) - 1;
+      if (left > 0) perIp.set(ip, left);
+      else perIp.delete(ip);
       if (state.room && state.player) {
+        log.info(
+          { event: "player.left", roomId: state.room.id, playerId: state.player.id, code },
+          "player left",
+        );
         state.match?.removePlayer(state.player.id);
         state.room.leave(state.player.id, `close ${code}`);
       }
@@ -330,7 +413,14 @@ export function attachWebSockets({
     state: (socket) => states.get(socket),
     ping: (socket) => socket.ping(),
     kill: (socket) => {
-      log.info({ playerId: states.get(socket)?.player?.id }, "heartbeat timeout");
+      log.info(
+        {
+          event: "ws.heartbeat_timeout",
+          playerId: states.get(socket)?.player?.id,
+          roomId: states.get(socket)?.room?.id,
+        },
+        "heartbeat timeout",
+      );
       counters.heartbeatKills += 1;
       reject("heartbeat");
       socket.terminate();
@@ -339,6 +429,7 @@ export function attachWebSockets({
 
   function closeAll(): Promise<void> {
     stopHeartbeat();
+    clearInterval(sweep);
     for (const socket of wss.clients) {
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(encodeServerMessage({ type: "shutdown" }));

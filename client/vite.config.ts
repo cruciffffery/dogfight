@@ -7,6 +7,7 @@
  *   LATENCY_MS=150 npm run dev  — штучна затримка для всіх /assets/* (заміри Promise.all)
  *   SLOW_MS=0                   — вимкнути «повільний» ambient.wav
  */
+import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -61,8 +62,21 @@ function failureLab(): Plugin {
 
 const SERVER = process.env.SERVER_URL ?? "http://localhost:8080";
 
+/** Версія збірки (Лаба 8): APP_VERSION з CI/Docker, інакше короткий git SHA, інакше "dev". */
+function appVersion(): string {
+  if (process.env.APP_VERSION) return process.env.APP_VERSION;
+  try {
+    return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch {
+    return "dev";
+  }
+}
+
 export default defineConfig({
   plugins: [failureLab()],
+  define: { __APP_VERSION__: JSON.stringify(appVersion()) },
   build: {
     // PROFILE=1 npm run build — без мініфікації, щоб у профілі були справжні імена функцій
     minify: process.env.PROFILE ? false : "esbuild",
@@ -71,6 +85,7 @@ export default defineConfig({
       input: {
         main: new URL("./index.html", import.meta.url).pathname,
         determinism: new URL("./determinism.html", import.meta.url).pathname,
+        dashboard: new URL("./dashboard.html", import.meta.url).pathname,
       },
     },
   },

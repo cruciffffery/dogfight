@@ -1,0 +1,27 @@
+# Локальний «як у продакшні» запуск (Лаба 8): docker compose up --build → http://localhost:8080
+services:
+  game:
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-local}
+    image: dogfight:local
+    init: true # tini як PID 1: збирає зомбі й передає сигнали
+    ports:
+      - "8080:8080"
+    environment:
+      LOG_LEVEL: info
+      ALLOWED_ORIGINS: http://localhost:8080
+      MAX_CONNECTIONS_PER_IP: 16
+      MAX_ROOMS: 50
+      MAX_PLAYERS_PER_ROOM: 8
+    volumes:
+      - match-logs:/data/logs
+    stop_grace_period: 15s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  match-logs:

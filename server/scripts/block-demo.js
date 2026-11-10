@@ -26,12 +26,13 @@ await once(server.stdout, "data");
 
 const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
 await once(ws, "open");
-ws.send(JSON.stringify({ v: 0, type: "join", room: "alpha", name: "Ann" }));
+ws.send(JSON.stringify({ v: 1, type: "join", room: "alpha", name: "Ann" }));
 
 const sent = new Map();
 const samples = [];
 const t0 = performance.now();
-ws.on("message", (data) => {
+ws.on("message", (data, isBinary) => {
+  if (isBinary) return; // знімки гри (з Лаби 5) — бінарні, нас цікавить лише чат
   const msg = JSON.parse(data);
   if (msg.type !== "chat") return;
   const at = sent.get(msg.text);
@@ -42,7 +43,7 @@ let n = 0;
 const ticker = setInterval(() => {
   const text = `ping-${n++}`;
   sent.set(text, performance.now());
-  ws.send(JSON.stringify({ v: 0, type: "chat", text }));
+  ws.send(JSON.stringify({ v: 1, type: "chat", text }));
 }, 50);
 
 setTimeout(async () => {

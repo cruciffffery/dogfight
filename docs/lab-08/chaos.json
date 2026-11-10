@@ -1,0 +1,38 @@
+{
+  "seconds": 10,
+  "node": "v22.22.0",
+  "rows": [
+    {
+      "phase": "baseline",
+      "rocksTickP99": 1.402,
+      "rocksTicks": 300,
+      "elu": 0.021,
+      "players": 9,
+      "rejections": {}
+    },
+    {
+      "phase": "flood",
+      "rocksTickP99": 3.357,
+      "rocksTicks": 300,
+      "elu": 0.546,
+      "players": 9,
+      "rejections": {
+        "bad_message": 59,
+        "ip_rate": 105422
+      },
+      "garbageFramesSentPerSec": 295,
+      "attackerConnectAttemptsPerSec": 10548
+    },
+    {
+      "phase": "kill-client",
+      "rocksTickP99": 0.748,
+      "rocksTicks": 300,
+      "elu": 0.012,
+      "players": 8,
+      "rejections": {},
+      "playersBefore": 9,
+      "playersAfter1s": 8,
+      "victimSnapshots": 601
+    }
+  ]
+}

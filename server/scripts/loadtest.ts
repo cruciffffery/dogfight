@@ -47,6 +47,7 @@ async function run(n: number, port: number) {
       COLLISIONS,
       LOG_DIR: "/tmp/dogfight-load",
       MAX_CONNECTIONS_PER_IP: "1000",
+      CONNECT_BURST_PER_IP: "1000",
     },
     stdio: ["ignore", "pipe", "inherit"],
   });

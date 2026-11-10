@@ -8,3 +8,6 @@ server/logs
 test-results
 playwright-report
 coverage
+
+# профілі CPU в docs/ — частина звіту (Лаба 7)
+!docs/**/*.cpuprofile

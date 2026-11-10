@@ -2,7 +2,9 @@
  * Ігровий сервер dogfight: node:http + ws. Запуск TypeScript напряму — вбудоване в Node
  * зрізання типів (type stripping), без кроку збирання.
  */
+import { existsSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { ARENAS, isArenaId } from "@dogfight/shared/arenas.ts";
@@ -11,8 +13,9 @@ import { addBot, type BotHandle } from "./bots.ts";
 import { loadConfig, type ServerConfig } from "./config.ts";
 import { createHttpHandler } from "./http.ts";
 import { type MatchLogResult, startMatchLog } from "./log/matchlog.ts";
-import { consoleLogger, type Logger } from "./logger.ts";
+import { createLogger, type Logger } from "./logger.ts";
 import { Match, type MatchStats } from "./match.ts";
+import { createMetrics } from "./metrics.ts";
 import { type Room, RoomManager } from "./rooms.ts";
 import { attachWebSockets, type Counters, type MatchRegistry } from "./ws.ts";
 
@@ -23,7 +26,10 @@ export interface GameServer {
   counters: Counters;
   stats: () => ServerStats;
   close: () => Promise<void>;
+  /** Готовий приймати гравців: клієнт зібраний, shutdown не почався (для /ready). */
+  isReady: () => boolean;
   config: ServerConfig;
+  log: Logger;
 }
 
 export interface ServerStats extends Omit<Counters, "rejected"> {
@@ -34,12 +40,13 @@ export interface ServerStats extends Omit<Counters, "rejected"> {
   /** Завантаженість циклу подій (0..1) з попереднього виклику stats(). */
   elu: number;
   uptime: number;
+  version: string;
   matches: MatchStats[];
 }
 
 export function createGameServer(
   config: ServerConfig = loadConfig(),
-  log: Logger = consoleLogger,
+  log: Logger = createLogger(config.logLevel, config.version),
 ): GameServer {
   const rooms = new RoomManager({
     maxRooms: config.maxRooms,
@@ -48,6 +55,7 @@ export function createGameServer(
 
   const logsDone = new Set<Promise<MatchLogResult>>();
   rooms.on("created", (room) => {
+    log.info({ event: "room.created", roomId: room.id, arena: room.arena }, "room created");
     const { done } = startMatchLog(room, config.logDir, {
       onError: (err) => log.error({ err, roomId: room.id }, "match log failed"),
     });
@@ -87,6 +95,7 @@ export function createGameServer(
     all: () => [...matchByRoom.values()],
   };
   rooms.on("deleted", (room) => {
+    log.info({ event: "room.deleted", roomId: room.id }, "room deleted");
     matchByRoom.get(room.id)?.stop();
     matchByRoom.delete(room.id);
   });
@@ -103,6 +112,7 @@ export function createGameServer(
       rss: process.memoryUsage().rss,
       elu: +elu.toFixed(3),
       uptime: process.uptime(),
+      version: config.version,
       matches: matches.all().map((m) => m.stats()),
     };
   };
@@ -130,7 +140,46 @@ export function createGameServer(
     },
   };
 
-  const server = createServer(createHttpHandler({ config, rooms, stats, log, bots }));
+  let shuttingDown = false;
+  const isReady = (): boolean => !shuttingDown && existsSync(join(config.staticDir, "index.html"));
+  const metrics = createMetrics({
+    counters,
+    rooms: () => rooms.size,
+    players: () => rooms.playerCount,
+    matches: () => matches.all().map((m) => m.stats()),
+    version: config.version,
+  });
+
+  const server = createServer(
+    createHttpHandler({
+      config,
+      rooms,
+      stats,
+      log,
+      bots,
+      async extraRoutes(_req, res, path) {
+        if (path === "/ready") {
+          const ready = isReady();
+          res.writeHead(ready ? 200 : 503, {
+            "content-type": "application/json",
+            "cache-control": "no-store",
+          });
+          res.end(JSON.stringify({ ready, shuttingDown, version: config.version }));
+          return true;
+        }
+        if (path === "/metrics") {
+          const body = await metrics.metrics();
+          res.writeHead(200, { "content-type": metrics.contentType, "cache-control": "no-store" });
+          res.end(body);
+          return true;
+        }
+        return false;
+      },
+    }),
+  );
+  // Довше за типовий idle-таймаут балансувальника (60 с), щоб проксі закривав першим.
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
   const sockets = attachWebSockets({ server, config, rooms, matches, log, counters });
 
   rooms.create({ id: "alpha", name: "Alpha — classic", arena: "classic", persistent: true });
@@ -140,6 +189,7 @@ export function createGameServer(
   let closing: Promise<void> | null = null;
   function close(): Promise<void> {
     closing ??= (async () => {
+      shuttingDown = true; // /ready → 503 одразу: балансувальник перестає слати нових
       server.close();
       for (const m of matches.all()) m.stop();
       await sockets.closeAll();
@@ -150,7 +200,7 @@ export function createGameServer(
     return closing;
   }
 
-  return { server, rooms, matches, counters, stats, close, config };
+  return { server, rooms, matches, counters, stats, close, isReady, config, log };
 }
 
 export function listen(game: GameServer): Promise<{ address: string; port: number }> {
@@ -167,28 +217,42 @@ export function listen(game: GameServer): Promise<{ address: string; port: numbe
 const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMain) {
   const config = loadConfig();
-  const game = createGameServer(config);
+  const log = createLogger(config.logLevel, config.version);
+
+  // Невідома помилка = невідомий стан. Логуємо зі стеком і падаємо з кодом 1 —
+  // супервізор (Docker restart policy, Fly) підніме чистий процес. НЕ «ковтаємо» помилку.
+  process.on("uncaughtException", (err) => {
+    log.error({ event: "process.crash", kind: "uncaughtException", err }, "crashing");
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    log.error({ event: "process.crash", kind: "unhandledRejection", err: reason }, "crashing");
+    process.exit(1);
+  });
+
+  const game = createGameServer(config, log);
   const addr = await listen(game);
-  consoleLogger.info(
-    { static: config.staticDir },
-    `[server] listening on http://${addr.address}:${addr.port}`,
+  log.info(
+    { event: "server.listening", address: addr.address, port: addr.port, static: config.staticDir },
+    `listening on http://${addr.address}:${addr.port}`,
   );
 
-  for (const signal of ["SIGINT", "SIGTERM"]) {
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => {
-      consoleLogger.info({ signal }, "[server] shutting down…");
+      const t0 = performance.now();
+      log.info({ event: "server.shutdown", signal }, "shutting down");
       const force = setTimeout(() => {
-        consoleLogger.error({}, "[server] shutdown timed out, forcing exit");
+        log.error({ event: "server.shutdown_timeout" }, "shutdown timed out, forcing exit");
         process.exit(1);
       }, config.shutdownTimeoutMs);
       force.unref();
       game.close().then(
         () => {
-          consoleLogger.info({}, "[server] bye");
+          log.info({ event: "server.exit", ms: Math.round(performance.now() - t0) }, "bye");
           process.exit(0);
         },
         (err: unknown) => {
-          consoleLogger.error({ err }, "[server] shutdown failed");
+          log.error({ event: "server.shutdown_failed", err }, "shutdown failed");
           process.exit(1);
         },
       );

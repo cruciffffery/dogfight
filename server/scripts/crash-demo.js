@@ -28,7 +28,7 @@ async function run(label, env) {
   const player = new WebSocket(`ws://127.0.0.1:${port}/ws`);
   player.on("error", () => {});
   await once(player, "open");
-  player.send(JSON.stringify({ v: 0, type: "join", room: "rocks", name: "Innocent" }));
+  player.send(JSON.stringify({ v: 1, type: "join", room: "rocks", name: "Innocent" }));
 
   const attacker = new WebSocket(`ws://127.0.0.1:${port}/ws`);
   attacker.on("error", () => {});

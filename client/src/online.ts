@@ -481,7 +481,8 @@ export function startOnlineGame({
   };
   const paintHud = (lv: View): void => {
     const line = hudInfo.lines[0];
-    if (line) line.text = `${welcome.room.name} · hp ${myServer?.hp ?? "—"} · ship #${myShipId}`;
+    if (line)
+      line.text = `${welcome.room.name} · hp ${myServer?.hp ?? "—"} · ship #${myShipId} · ${__APP_VERSION__}`;
     if (lastStats) drawHud(lv, lastStats, hudInfo);
   };
   const paintNet = (lv: View): void => netgraph.draw(lv);

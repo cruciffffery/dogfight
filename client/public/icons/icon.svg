@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>dogfight</title>
+  <rect width="512" height="512" fill="#0b1020"/>
+  <g fill="#e8edf7" opacity=".55">
+    <circle cx="96" cy="120" r="5"/><circle cx="410" cy="86" r="4"/><circle cx="430" cy="400" r="6"/>
+    <circle cx="70" cy="390" r="4"/><circle cx="250" cy="440" r="3"/><circle cx="330" cy="200" r="3"/>
+  </g>
+  <path d="M370 256 170 150l42 106-42 106z" fill="#4da3ff"/>
+  <path d="M212 256 170 150l-28 40 22 66-22 66 28 40z" fill="#2a6fc2"/>
+  <path d="M150 236l-46 20 46 20z" fill="#ffb020"/>
+  <circle cx="420" cy="256" r="9" fill="#ffe08a"/>
+</svg>

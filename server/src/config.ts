@@ -40,6 +40,29 @@ const env = z.preprocess(
     SHUTDOWN_TIMEOUT_MS: int(10000, 100),
     /** Лаба 7: "grid" — просторовий хеш (за замовчуванням), "naive" — O(n²) для порівняння. */
     COLLISIONS: z.enum(["grid", "naive"]).default("grid"),
+    // ---- Лаба 8: продакшн ----
+    /** Список дозволених Origin через кому. Порожньо — лише той самий хост, що й Host запиту. */
+    ALLOWED_ORIGINS: z
+      .string()
+      .default("")
+      .transform((s) =>
+        s
+          .split(",")
+          .map((o) => o.trim().replace(/\/$/, ""))
+          .filter(Boolean),
+      )
+      .pipe(z.array(z.url({ protocol: /^https?$/ }))),
+    MAX_CONNECTIONS_PER_IP: int(8, 1),
+    /** Нових WS-з'єднань з одного IP: сплеск і поповнення за секунду (захист від циклу «підключись-насміти»). */
+    CONNECT_BURST_PER_IP: int(20, 1),
+    CONNECT_RATE_PER_IP: int(2, 1),
+    /** За проксі (Fly, Render, nginx) справжній IP клієнта — у X-Forwarded-For / Fly-Client-IP. */
+    TRUST_PROXY: bool(false),
+    LOG_LEVEL: z
+      .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
+      .default("info"),
+    /** Git SHA / тег, що зібраний (Docker build-arg) — у /health і /metrics. */
+    APP_VERSION: z.string().default("dev"),
   }),
 );
 
@@ -61,6 +84,12 @@ export interface ServerConfig {
   readonly demoNoErrorListener: boolean;
   readonly shutdownTimeoutMs: number;
   readonly collisions: "grid" | "naive";
+  readonly allowedOrigins: readonly string[];
+  readonly maxConnectionsPerIp: number;
+  readonly connectRatePerIp: { readonly perSecond: number; readonly burst: number };
+  readonly trustProxy: boolean;
+  readonly logLevel: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
+  readonly version: string;
 }
 
 export function loadConfig(source: Record<string, string | undefined> = process.env): ServerConfig {
@@ -86,5 +115,11 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     demoNoErrorListener: e.DEMO_NO_ERROR_LISTENER,
     shutdownTimeoutMs: e.SHUTDOWN_TIMEOUT_MS,
     collisions: e.COLLISIONS,
+    allowedOrigins: Object.freeze(e.ALLOWED_ORIGINS),
+    maxConnectionsPerIp: e.MAX_CONNECTIONS_PER_IP,
+    connectRatePerIp: { perSecond: e.CONNECT_RATE_PER_IP, burst: e.CONNECT_BURST_PER_IP },
+    trustProxy: e.TRUST_PROXY,
+    logLevel: e.LOG_LEVEL,
+    version: e.APP_VERSION,
   });
 }

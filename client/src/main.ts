@@ -224,6 +224,15 @@ async function boot(): Promise<void> {
   canvas?.focus();
 }
 
+/** PWA (Лаба 8): service worker лише у production-збірці — у dev він заважав би HMR. */
+if (import.meta.env.PROD && "serviceWorker" in navigator && !params.has("nosw")) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((err: unknown) => {
+      console.warn("[pwa] service worker registration failed:", errorMessage(err));
+    });
+  });
+}
+
 boot().catch((err: unknown) => {
   console.error(err);
   const p = document.createElement("p");
