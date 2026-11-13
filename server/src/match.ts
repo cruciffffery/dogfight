@@ -3,7 +3,7 @@
  * знімок кожному гравцю з його lastProcessedSeq. Таймер — з абсолютною ціллю.
  */
 import { ARENAS } from "@dogfight/shared/arenas.ts";
-import { SNAPSHOT_ACK_OFFSET } from "@dogfight/shared/codec/binary.ts";
+import { encodeSnapshot, SNAPSHOT_ACK_OFFSET } from "@dogfight/shared/codec/binary.ts";
 import { binaryCodec, type Codec, codecs, frameSize } from "@dogfight/shared/codec/index.ts";
 import { buildSnapshot } from "@dogfight/shared/protocol/snapshot.ts";
 import { type ArenaConfig, type CodecName, TICK_DT, TICK_RATE } from "@dogfight/shared/protocol.ts";
@@ -199,7 +199,7 @@ export class Match {
     for (const p of this.players.values()) {
       let data: string | ArrayBuffer;
       if (p.codec === binaryCodec) {
-        binary ??= binaryCodec.encodeSnapshot({ ...snapshot, ack: 0 }) as ArrayBuffer;
+        binary ??= encodeSnapshot({ ...snapshot, ack: 0 }); // бінарний кодек напряму: тип уже ArrayBuffer
         data = binary.slice(0);
         new DataView(data).setUint32(SNAPSHOT_ACK_OFFSET, p.lastSeq >>> 0, true);
       } else {
