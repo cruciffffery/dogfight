@@ -1,7 +1,7 @@
 # dogfight
 
-[![CI](https://github.com/OWNER/dogfight/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/dogfight/actions/workflows/ci.yml)
-[![Deploy](https://github.com/OWNER/dogfight/actions/workflows/deploy.yml/badge.svg)](https://github.com/OWNER/dogfight/actions/workflows/deploy.yml)
+[![CI](https://github.com/cruciffffery/dogfight/actions/workflows/ci.yml/badge.svg)](https://github.com/cruciffffery/dogfight/actions/workflows/ci.yml)
+[![Deploy](https://github.com/cruciffffery/dogfight/actions/workflows/deploy.yml/badge.svg)](https://github.com/cruciffffery/dogfight/actions/workflows/deploy.yml)
 
 **Мультиплеєрний космічний догфайт у браузері в реальному часі.** Арена з «загортанням» країв, до 8 пілотів у кімнаті, астероїди і підсилювачі (щит, скорострільність, самонавідні кулі), чат і серверні боти. Сервер авторитетний (30 Гц), клієнт передбачає свій корабель і інтерполює чужі; протокол — бінарний `DataView` (у 7 разів менший за JSON).
 
