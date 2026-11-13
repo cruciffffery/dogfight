@@ -17,6 +17,7 @@ afterEach(async () => {
 
 /** Чекає на результат рукостискання: "open" або HTTP-статус відмови. */
 function handshake(c: ReturnType<typeof connect>): Promise<"open" | number> {
+  c.opened.catch(() => {}); // при відмові (403) проміс відкриття відхиляється — це очікувано
   return new Promise((resolve) => {
     c.ws.once("open", () => resolve("open"));
     c.ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
@@ -78,8 +79,10 @@ describe("per-IP connect rate", () => {
     const results: ("open" | number)[] = [];
     for (let i = 0; i < 7; i++) {
       const c = connect(srv.wsUrl);
-      results.push(await handshake(c));
-      c.ws.terminate();
+      const result = await handshake(c);
+      results.push(result);
+      // terminate() на сокеті, якому відмовили, ще в стані CONNECTING — на Windows це кидає помилку
+      if (result === "open") c.ws.terminate();
     }
     expect(results.slice(0, 5)).toEqual(["open", "open", "open", "open", "open"]);
     expect(results.slice(5)).toEqual([403, 403]);

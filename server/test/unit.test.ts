@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { parseClientMessage } from "@dogfight/shared/protocol.ts";
 import { PlayerId } from "@dogfight/shared/types.ts";
 import { describe, expect, test } from "vitest";
@@ -149,18 +149,22 @@ describe("rooms", () => {
 describe("static path guard", () => {
   const root = "/srv/app/dist";
   test("keeps paths inside root", () => {
-    expect(safeJoin(root, "/index.html")).toBe("/srv/app/dist/index.html");
-    expect(safeJoin(root, "/assets/a.js")).toBe("/srv/app/dist/assets/a.js");
+    // resolve — щоб тест працював і на Windows (там корінь стає D:\srv\app\dist)
+    expect(safeJoin(root, "/index.html")).toBe(resolve(root, "index.html"));
+    expect(safeJoin(root, "/assets/a.js")).toBe(resolve(root, "assets", "a.js"));
   });
   test.each([
     "/../../etc/passwd",
     "/%2e%2e/%2e%2e/etc/passwd",
     "/..%2f..%2fetc/passwd",
     "/a/../../../etc",
+    "/..%5c..%5cWindows", // зворотні слеші — роздільник на Windows
     "/%00",
   ])("blocks %s", (evil) => {
     const r = safeJoin(root, evil);
-    expect(r === null || r === root || r.startsWith(`${root}/`)).toBe(true);
+    // або відмова, або шлях УСЕРЕДИНІ кореня (порівнюємо з нормалізованим коренем і роздільником ОС)
+    const base = resolve(root);
+    expect(r === null || r === base || r.startsWith(`${base}${sep}`)).toBe(true);
   });
   test("malformed escape → null", () => {
     expect(safeJoin(root, "/%E0%A4%A")).toBeNull();

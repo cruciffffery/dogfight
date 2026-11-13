@@ -81,9 +81,10 @@ export function safeJoin(root: string, urlPath: string): string | null {
     return null;
   }
   if (decoded.includes("\0")) return null;
-  const full = resolve(root, `.${normalize(`/${decoded}`)}`);
-  const rootWithSep = root.endsWith(sep) ? root : root + sep;
-  return full === root || full.startsWith(rootWithSep) ? full : null;
+  const base = resolve(root); // корінь теж нормалізуємо: на Windows "/srv/x" → "D:\\srv\\x"
+  const full = resolve(base, `.${normalize(`/${decoded}`)}`);
+  const baseWithSep = base.endsWith(sep) ? base : base + sep;
+  return full === base || full.startsWith(baseWithSep) ? full : null;
 }
 
 async function serveStatic(req: IncomingMessage, res: ServerResponse, root: string): Promise<void> {
