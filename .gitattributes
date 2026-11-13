@@ -1,0 +1,5 @@
+# Однакові кінці рядків (LF) на Windows і Linux — Biome і CI очікують LF
+* text=auto eol=lf
+*.png binary
+*.gif binary
+*.cpuprofile -diff
