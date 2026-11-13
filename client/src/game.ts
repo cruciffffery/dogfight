@@ -149,7 +149,8 @@ export function startGame({
         .join("  ");
       const lines = [
         {
-          text: `${arenaConfig.name} · hp ${player.hp} · entities ${world.size}`,
+          // шкода від зіткнення пропорційна швидкості, тож hp дробове — показуємо цілим (вгору)
+          text: `${arenaConfig.name} · hp ${Math.ceil(player.hp)} · entities ${world.size}`,
           color: "#cfe0ff",
         },
         { text: fx ? `effects: ${fx}` : "effects: —" },
