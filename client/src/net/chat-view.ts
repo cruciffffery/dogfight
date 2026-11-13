@@ -2,7 +2,8 @@ import { $ } from "../ui/dom.ts";
 import type { Connection } from "./connection.ts";
 
 /**
- * Склад кімнати + чат поверх гри. Enter — написати/надіслати, Esc — повернутись до гри.
+ * Склад кімнати + чат поверх гри. Enter — написати/надіслати; Esc у чаті — повернутись до гри,
+ * Esc у грі (або кнопка «← Лобі») — вийти з кімнати в лобі.
  */
 const STYLE = `
 .room-ui { position: fixed; left: 14px; bottom: 14px; width: min(340px, calc(100vw - 28px)); font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #cfe0ff; pointer-events: none; }
@@ -14,6 +15,9 @@ const STYLE = `
 .room-ui input { pointer-events: auto; width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px; border: 1px solid #2c3d6e; background: #070b15; color: #e8edf7; font: inherit; display: none; }
 .room-ui.typing input { display: block; }
 .room-ui .status { color: #ffb020; }
+.room-ui .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.room-ui .leave { pointer-events: auto; cursor: pointer; font: inherit; color: #cfe0ff; background: #121a33; border: 1px solid #2c3d6e; border-radius: 6px; padding: 2px 8px; }
+.room-ui .leave:hover { background: #1b2750; }
 `;
 
 export interface RoomUi {
@@ -30,7 +34,7 @@ export function mountRoomUi(
   const el = document.createElement("div");
   el.className = "room-ui";
   el.innerHTML = `
-    <div class="box"><div class="title"></div><div class="roster"></div><div class="status"></div></div>
+    <div class="box"><div class="head"><div class="title"></div><button class="leave" type="button" title="Вийти з кімнати (Esc)">← Лобі</button></div><div class="roster"></div><div class="status"></div></div>
     <div class="box"><div class="msgs" aria-live="polite"></div><input maxlength="200" placeholder="Повідомлення… (Enter)"></div>`;
   document.body.append(style, el);
   $(el, ".title", HTMLDivElement).textContent = `Кімната: ${roomName} · Enter — чат`;
@@ -39,6 +43,16 @@ export function mountRoomUi(
   const input = $(el, "input", HTMLInputElement);
   const status = $(el, ".status", HTMLDivElement);
   let me: number | null = myId;
+
+  /** Вийти з кімнати: чемно попрощатися з сервером і перезавантажитись у лобі (адреса без ?room). */
+  function leave(): void {
+    conn.send({ type: "leave" });
+    conn.close();
+    const url = new URL(location.href);
+    url.searchParams.delete("room");
+    location.assign(url);
+  }
+  $(el, ".leave", HTMLButtonElement).addEventListener("click", leave);
 
   const add = (text: string, cls?: string): void => {
     const line = document.createElement("div");
@@ -83,9 +97,13 @@ export function mountRoomUi(
         input.focus();
       }
       e.preventDefault();
-    } else if (e.key === "Escape" && document.activeElement === input) {
-      input.blur();
-      el.classList.remove("typing");
+    } else if (e.key === "Escape") {
+      if (document.activeElement === input) {
+        input.blur();
+        el.classList.remove("typing");
+      } else {
+        leave();
+      }
     }
   }
   window.addEventListener("keydown", onKey);
