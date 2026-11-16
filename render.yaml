@@ -1,0 +1,28 @@
+# Render Blueprint (Лаба 8): https://render.com/docs/blueprint-spec
+# render.com → New → Blueprint → вибрати цей репозиторій → Apply.
+services:
+  - type: web
+    name: dogfight
+    runtime: docker # збирає наш Dockerfile (той самий, що для docker compose і Fly)
+    plan: free # 0.1 CPU, 512 МБ; засинає після 15 хв без вхідного трафіку
+    region: frankfurt # найближчий до Києва регіон Render
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /ready # 503 під час shutdown → Render не шле нових гравців на процес, що зупиняється
+    autoDeployTrigger: checksPass # деплой нового коміту main лише після зеленого CI
+    envVars:
+      # PORT Render задає сам (10000) — сервер читає його з env
+      - key: LOG_LEVEL
+        value: info
+      - key: TRUST_PROXY # IP гравця — з X-Forwarded-For від проксі Render (для лімітів на IP)
+        value: "1"
+      - key: MAX_CONNECTIONS_PER_IP
+        value: "8"
+      - key: MAX_ROOMS
+        value: "20"
+      - key: MAX_PLAYERS_PER_ROOM
+        value: "8"
+      - key: LOG_DIR
+        value: /data/logs
+      # ALLOWED_ORIGINS не задаємо: порожній список = дозволено лише той самий хост, що й сторінка
+      # (https://<назва>.onrender.com) — саме те, що треба, і не треба знати назву наперед.

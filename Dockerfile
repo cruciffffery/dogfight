@@ -25,6 +25,9 @@ COPY shared shared
 COPY client client
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
+# Render передає свої змінні як build-arg лише для оголошених ARG — SHA коміту для HUD клієнта
+ARG RENDER_GIT_COMMIT=
+ENV RENDER_GIT_COMMIT=${RENDER_GIT_COMMIT}
 RUN npm run build -w client
 
 # ---------- 2. production deps ----------

@@ -62,9 +62,15 @@ function failureLab(): Plugin {
 
 const SERVER = process.env.SERVER_URL ?? "http://localhost:8080";
 
-/** Версія збірки (Лаба 8): APP_VERSION з CI/Docker, інакше короткий git SHA, інакше "dev". */
+/**
+ * Версія збірки (Лаба 8): APP_VERSION з CI/Docker; на Render — SHA коміту з RENDER_GIT_COMMIT;
+ * локально — короткий git SHA; інакше "dev".
+ */
 function appVersion(): string {
-  if (process.env.APP_VERSION) return process.env.APP_VERSION;
+  const v = process.env.APP_VERSION;
+  if (v && v !== "dev") return v;
+  const render = process.env.RENDER_GIT_COMMIT;
+  if (render) return render.slice(0, 7);
   try {
     return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] })
       .toString()

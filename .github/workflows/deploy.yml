@@ -1,6 +1,6 @@
 name: Deploy
 
-# Тег v* (наприклад v1.0.0) → CI → образ у GHCR → деплой на Fly.io → перевірка /health.
+# Тег v* (наприклад v1.0.0) → CI → образ у GHCR (+ деплой на Fly.io, якщо DEPLOY_TARGET=fly) → перевірка /health.
 on:
   push:
     tags: ["v*"]
@@ -15,7 +15,7 @@ jobs:
 
   image:
     needs: ci
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       ref: ${{ steps.meta.outputs.ref }}
       version: ${{ steps.meta.outputs.version }}
@@ -46,7 +46,10 @@ jobs:
 
   deploy:
     needs: image
-    runs-on: ubuntu-latest
+    # Основний хостинг — Render (render.yaml, деплоїть сам після зеленого CI).
+    # Деплой на Fly вмикається змінною репозиторію DEPLOY_TARGET=fly (Settings → Variables).
+    if: vars.DEPLOY_TARGET == 'fly'
+    runs-on: ubuntu-24.04
     environment: production
     steps:
       - uses: actions/checkout@v4

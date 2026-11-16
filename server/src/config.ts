@@ -120,6 +120,10 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     connectRatePerIp: { perSecond: e.CONNECT_RATE_PER_IP, burst: e.CONNECT_BURST_PER_IP },
     trustProxy: e.TRUST_PROXY,
     logLevel: e.LOG_LEVEL,
-    version: e.APP_VERSION,
+    // На Render образ збирається без --build-arg, зате платформа дає SHA коміту
+    version:
+      e.APP_VERSION === "dev" && source.RENDER_GIT_COMMIT
+        ? source.RENDER_GIT_COMMIT.slice(0, 7)
+        : e.APP_VERSION,
   });
 }
