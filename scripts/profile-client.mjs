@@ -31,8 +31,18 @@ const server = spawn(process.execPath, ["server/src/index.ts"], {
   },
   stdio: ["ignore", "pipe", "inherit"],
 });
-await new Promise((r) => server.stdout.once("data", r));
 const base = `http://localhost:${PORT}`;
+// Чекаємо, поки сервер реально слухає порт: перший рядок логу (room.created) з'являється раніше.
+for (let i = 0; i < 100; i++) {
+  if (
+    await fetch(`${base}/health`).then(
+      (r) => r.ok,
+      () => false,
+    )
+  )
+    break;
+  await new Promise((r) => setTimeout(r, 100));
+}
 await fetch(`${base}/api/rooms/rocks/bots`, { method: "POST", body: JSON.stringify({ count: 8 }) });
 
 const browser = await chromium.launch({

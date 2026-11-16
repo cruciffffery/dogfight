@@ -51,8 +51,18 @@ async function run(n: number, port: number) {
     },
     stdio: ["ignore", "pipe", "inherit"],
   });
-  await new Promise((r) => server.stdout?.once("data", r));
   const base = `http://127.0.0.1:${port}`;
+  // Чекаємо, поки сервер реально слухає порт: перший рядок логу (room.created) з'являється раніше.
+  for (let i = 0; i < 100; i++) {
+    if (
+      await fetch(`${base}/health`).then(
+        (r) => r.ok,
+        () => false,
+      )
+    )
+      break;
+    await sleep(100);
+  }
   const stats = async (): Promise<Stats> =>
     (await fetch(`${base}/api/stats`)).json() as Promise<Stats>;
 
