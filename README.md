@@ -1173,7 +1173,16 @@ Flame graph (згенеровано з `.cpuprofile` скриптом `scripts/f
 ### M3 — контейнер і конвеєр
 
 - **`Dockerfile`** — три етапи: `build` (усі залежності, `vite build`), `deps` (`npm ci --omit=dev -w server`), `runtime` (`node:22-alpine` + prod-залежності + `server/src`, `shared/src`, `client/dist`). Сервер не компілюється: Node виконує `.ts` сам. `package*.json` копіюються **до** коду — зміна коду не інвалідує шар `npm ci`. `USER node`, `CMD ["node", "server/src/index.ts"]` (exec-форма — `SIGTERM` іде прямо в Node), `HEALTHCHECK` через `node -e fetch(...)` (без curl). `.dockerignore` не пускає в контекст `node_modules`, `.git`, `.env`, тести, документацію.
-- **Розмір образу:** _записати після `docker build` (`docker images dogfight`)_. Оцінка: базовий `node:22-alpine` ≈ 160 МБ + prod-залежності (`ws`, `zod`, `pino`, `prom-client`) ≈ 10 МБ + клієнт < 1 МБ → **≈ 170 МБ** (< 200 МБ). Точне число — з `docker images dogfight` або з кроку «Image size» у GitHub Actions.
+- **Розмір образу** (Docker Desktop 4.99 на моєму ноутбуці, `docker build -t dogfight --build-arg APP_VERSION=v1.0.0 .`): **≈ 195 МБ розпакований, 64.5 МБ стиснутий** (саме стільки тягне платформа при деплої). Розбивка з `docker history dogfight`:
+
+  | Шар                                                                                            | Розмір   |
+  | ---------------------------------------------------------------------------------------------- | -------- |
+  | база `node:22-alpine`: Alpine 3.24 (9.1 МБ) + Node 22.23 (163 МБ) + yarn і entrypoint (5.5 МБ) | ≈ 178 МБ |
+  | production-залежності (`ws`, `zod`, `pino`, `prom-client` з транзитивними)                     | 16.4 МБ  |
+  | наш код: `server/src` 115 КБ, `shared/src` 168 КБ, зібраний клієнт 643 КБ                      | ≈ 1 МБ   |
+
+  91 % образу — сам Node; Vite, TypeScript, Vitest, Playwright і Biome в образ не потрапили (лишились в етапі `build`). Колонка DISK USAGE у `docker images` показує 260 МБ, бо сховище containerd у Docker Desktop тримає і розпаковані шари, і їхню стиснуту копію.
+- **Перевірка контейнера:** `docker run -d --init -p 8081:8080 dogfight` → `/health` повертає `"version":"v1.0.0"`; **`docker stop` — 379 мс**: `SIGTERM` дійшов до Node (exec-форма `CMD`), сервер закрив кімнати й вийшов за 4 мс (`"event":"server.exit","ms":4`), Docker не довелося слати `SIGKILL` через 10 с.
 - **`compose.yaml`** — локальний «як у продакшні» запуск: `init: true`, `read_only`, том для журналів матчів, `stop_grace_period: 15s`.
 - **GitHub Actions:** `ci.yml` на кожен push і PR (typecheck → Biome → тести з покриттям → build → e2e). `deploy.yml` на тег `v*`: той самий CI як `workflow_call` → образ у GHCR з `APP_VERSION=<тег>-<sha>` → `flyctl deploy --image` → smoke-тест, що `/health` повертає **саме цю** версію.
 - **`fly.toml`:** одна машина без засинання (`auto_stop_machines = "off"`, `min_machines_running = 1`), `concurrency type = "connections"`, перевірка `/ready`, `force_https` (браузер іде на `wss://`), `TRUST_PROXY=1`. Проксі Fly підтримує `Upgrade`; heartbeat кожні 15 с не дає йому закрити тихе з'єднання (idle-таймаут проксі — 60 с). `server.keepAliveTimeout = 65 с` — довше за таймаут балансувальника, щоб з'єднання закривав він, а не ми посеред запиту.
